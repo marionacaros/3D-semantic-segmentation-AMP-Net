@@ -156,9 +156,10 @@ def get_weights4sample(weights4class, labels=None):
     return weights4samples
 
 
-def sample_point_cloud(points, n_points=2048, plot=False, writer_tensorboard=None, filenames=[], lengths=[],
-                       targets=[], task='classification', device='cuda'):
-    """get fixed size samples of point cloud in windows
+def split4classif_point_cloud(points, n_points=2048, plot=False, writer_tensorboard=None, filenames=[], lengths=[],
+                              targets=[], task='classification', device='cuda'):
+    """ split point cloud in windows of fixed size (n_points)
+        and padd with 0 needed points to fill the window
 
     :param lengths:
     :param filenames:
@@ -181,21 +182,16 @@ def sample_point_cloud(points, n_points=2048, plot=False, writer_tensorboard=Non
             in_points = points[:, j * n_points: end_batch, :]  # [batch, 2048, 11]
 
         else:
+            # padd with zeros to fill the window -> només aplica a la última finestra del batch
             points_needed = end_batch - points.shape[1]
             in_points = points[:, j * n_points:, :]
-            # add duplicated points from last window -> produeix punts en finestres de zeros
             if points_needed != n_points:
-                rdm_list = np.random.randint(0, n_points, points_needed)
-                extra_points = pc_w[:, rdm_list, :, -1]
-                in_points = torch.cat([in_points, extra_points], dim=1)
+                # padd with zeros
+                padd_points = torch.zeros(points.shape[0], points_needed, points.shape[2]).to(device)
+                in_points = torch.cat((in_points, padd_points), dim=1)
                 if task == 'segmentation':
-                    # add duplicated targets
-                    extra_targets = targets[:, rdm_list]
+                    extra_targets = torch.full((targets.shape[0], points_needed), -1).to(device)
                     targets = torch.cat((targets, extra_targets), dim=1)
-
-            # padd with zeros
-            # padd_points = torch.zeros(points.shape[0], points_needed, points.shape[2]).to(device)
-            # in_points = torch.cat([in_points, padd_points], dim=1)
 
         if plot:
             # write figure to tensorboard
@@ -220,10 +216,243 @@ def sample_point_cloud(points, n_points=2048, plot=False, writer_tensorboard=Non
     return pc_w, targets
 
 
-def save_checkpoint(name, epoch, epochs_since_improvement, model, optimizer, accuracy, batch_size, learning_rate,
-                    number_of_points, weighing_method):
+def gaussian_split4segmen(points, n_points=2048, plot=False, writer_tensorboard=None, filenames=[], lengths=[],
+                             targets=[], device='cuda', duplicate=True):
+    pc_w = torch.FloatTensor().to(device)
+    targets_w = torch.LongTensor().to(device)
+    count_p = 0
+    j = 0
+    # loop over windows
+    while count_p < points.shape[1]:
+        end_batch = n_points * (j + 1)
+        # if not enough points -> remove last window
+        if end_batch <= points.shape[1]:
+            # sample
+
+
+def split4segmen_point_cloud(points, n_points=2048, plot=False, writer_tensorboard=None, filenames=[], lengths=[],
+                             targets=[], device='cuda', duplicate=True):
+    """ split point cloud in windows of fixed size (n_points)
+        loop over batches and fill windows with duplicate points of previous windows
+        last unfilled window is removed
+
+    :param points: input point cloud [batch, n_samples, dims]
+    :param n_points: number of points
+    :param plot: bool set to True for plotting windows
+    :param writer_tensorboard:
+    :param filenames:
+    :param targets: [batch, n_samples]
+    :param duplicate: bool
+    :param device:
+    :param lengths:
+
+    :return pc_w: point cloud in windows of fixed size
+    """
+    pc_w = torch.FloatTensor().to(device)
+    targets_w = torch.LongTensor().to(device)
+    count_p = 0
+    j = 0
+    # loop over windows
+    while count_p < points.shape[1]:
+        end_batch = n_points * (j + 1)
+        # if not enough points -> remove last window
+        if end_batch <= points.shape[1]:
+            # sample
+            in_points = points[:, j * n_points: end_batch, :]  # [batch, 2048, 11]
+            in_targets = targets[:, j * n_points: end_batch]  # [batch, 2048]
+            # if there is one unfilled point cloud in batch
+            if -1 in in_targets:
+                # loop over pc in batch
+                for b in range(in_targets.shape[0]):
+                    if -1 in in_targets[b, :]:
+                        i_bool = in_targets[b, :] == -1
+                        points_needed = int(sum(i_bool))
+                        if points_needed < n_points:
+                            if duplicate:
+                                # get duplicated points from first window
+                                rdm_list = np.random.randint(0, n_points, points_needed)
+                                extra_points = points[b, rdm_list, :]
+                                extra_targets = targets[b, rdm_list]
+                                first_points = in_points[b, :-points_needed, :]
+                                in_points[b, :, :] = torch.cat([first_points, extra_points], dim=0)
+                                in_targets[b, :] = torch.cat([in_targets[b, :-points_needed], extra_targets], dim=0)
+                            else:
+                                # padd with 0 unfilled windows
+                                in_targets[b, :] = torch.full((1, n_points), -1)
+                                in_points[b, :, :] = torch.zeros(1, n_points, points.shape[2]).to(device)
+                        else:
+                            # get duplicated points from previous windows
+                            rdm_list = np.random.randint(0, targets_w.shape[1], n_points)
+                            in_points[b, :, :] = points[b, rdm_list, :]  # [2048, 11]
+                            in_targets[b, :] = targets[b, rdm_list]  # [2048]
+
+            # transform targets into Long Tensor
+            in_targets = torch.LongTensor(in_targets.cpu()).to(device)
+            in_points = torch.unsqueeze(in_points, dim=3)  # [batch, 2048, 11, 1]
+            # concat points and targets into tensor w
+            pc_w = torch.cat((pc_w, in_points), dim=3)
+            targets_w = torch.cat((targets_w, in_targets), dim=1)
+
+            # write figure to tensorboard
+            if plot:
+                ax = plt.axes(projection='3d')
+                pc_plot = in_points.cpu()
+                sc = ax.scatter(pc_plot[0, :, 0], pc_plot[0, :, 1], pc_plot[0, :, 2], c=pc_plot[0, :, 3], s=10,
+                                marker='o',
+                                cmap='Spectral')
+                plt.colorbar(sc)
+                tag = filenames[0].split('/')[-1]
+                plt.title(
+                    'PC size: ' + str(lengths[0].numpy()) + ' B size: ' + str(points.shape[1]) + ' L: ' + str(
+                        in_targets[0].cpu().numpy()))
+                writer_tensorboard.add_figure(tag, plt.gcf(), j)
+
+        count_p = count_p + in_points.shape[1]
+        j += 1
+
+    return pc_w, targets_w
+
+
+def split4segmen_test(points, n_points=2048, plot=False, writer_tensorboard=None, filenames=[], lengths=[],
+                             targets=[], device='cuda', duplicate=True):
+    """ split point cloud in windows of fixed size (n_points)
+        loop over batches and fill windows with duplicate points of previous windows
+        last unfilled window is removed
+
+    :param points: input point cloud [batch, n_samples, dims]
+    :param n_points: number of points
+    :param plot: bool set to True for plotting windows
+    :param writer_tensorboard:
+    :param filenames:
+    :param targets:
+    :param duplicate: bool
+    :param device:
+    :param lengths:
+
+    :return pc_w: point cloud in windows of fixed size
+    """
+    pc_w = torch.FloatTensor().to(device)
+    targets_w = torch.LongTensor().to(device)
+
+    count_p = 0
+    j = 0
+    # loop over windows
+    while j < 4:
+        end_batch = n_points * (j + 1)
+        # if not enough points -> remove last window
+        if end_batch <= points.shape[1]:
+            # sample
+            in_points = points[:, j * n_points: end_batch, :]  # [batch, 2048, 11]
+            in_targets = targets[:, j * n_points: end_batch]  # [batch, 2048]
+            # if there is one unfilled point cloud in batch
+            if -1 in in_targets:
+                # loop over pc in batch
+                for b in range(in_targets.shape[0]):
+                    if -1 in in_targets[b, :]:
+                        i_bool = in_targets[b, :] == -1
+                        points_needed = int(sum(i_bool))
+                        if points_needed < n_points:
+                            if duplicate:
+                                # get duplicated points from first window
+                                rdm_list = np.random.randint(0, n_points, points_needed)
+                                extra_points = points[b, rdm_list, :]
+                                extra_targets = targets[b, rdm_list]
+                                first_points = in_points[b, :-points_needed, :]
+                                in_points[b, :, :] = torch.cat([first_points, extra_points], dim=0)
+                                in_targets[b, :] = torch.cat([in_targets[b, :-points_needed], extra_targets], dim=0)
+                            else:
+                                # padd with 0 unfilled windows
+                                in_targets[b, :] = torch.full((1, n_points), -1)
+                                in_points[b, :, :] = torch.zeros(1, n_points, points.shape[2]).to(device)
+                        else:
+                            # get duplicated points from previous windows
+                            rdm_list = np.random.randint(0, targets_w.shape[1], n_points)
+                            in_points[b, :, :] = points[b, rdm_list, :]  # [2048, 11]
+                            in_targets[b, :] = targets[b, rdm_list]  # [2048]
+        else:
+            # get duplicated points from previous windows
+            rdm_list = np.random.randint(0, points.shape[1], n_points)
+            in_points = points[:, rdm_list, :]  # [2048, 11]
+            in_targets = targets[:, rdm_list]  # [2048]
+
+        # transform targets into Long Tensor
+        in_targets = torch.LongTensor(in_targets.cpu()).to(device)
+        in_points = torch.unsqueeze(in_points, dim=3)  # [batch, 2048, 11, 1]
+        # concat points and targets into tensor w
+        pc_w = torch.cat((pc_w, in_points), dim=3)
+        targets_w = torch.cat((targets_w, in_targets), dim=1)
+
+        count_p = count_p + in_points.shape[1]
+        j += 1
+
+    return pc_w, targets_w
+
+
+def split4cls_point_cloud(points, n_points=2048, targets=[], device='cuda', duplicate=True):
+    """ split point cloud in windows of fixed size (n_points)
+        loop over batches and fill windows with duplicate points of previous windows
+        last unfilled window is removed
+
+    """
+    pc_w = torch.FloatTensor().to(device)
+    targets_w = torch.LongTensor().to(device)
+
+    count_p = 0
+    j = 0
+    # loop over windows
+    while count_p < points.shape[1]:
+        end_batch = n_points * (j + 1)
+        # if not enough points -> remove last window
+        if end_batch <= points.shape[1]:
+            # sample
+            in_points = points[:, j * n_points: end_batch, :]  # [batch, 2048, 11]
+            bool_0 = in_points == 0
+            num_0 = int(sum(bool_0))
+
+            # if there is one unfilled point cloud in batch
+            if -1 in in_targets:
+                # loop over pc in batch
+                for b in range(in_targets.shape[0]):
+                    if -1 in in_targets[b, :]:
+                        i_bool = in_targets[b, :] == -1
+                        points_needed = int(sum(i_bool))
+                        if points_needed < n_points:
+                            if duplicate:
+                                # get duplicated points from first window
+                                rdm_list = np.random.randint(0, n_points, points_needed)
+                                extra_points = points[b, rdm_list, :]
+                                extra_targets = targets[b, rdm_list]
+                                first_points = in_points[b, :-points_needed, :]
+                                in_points[b, :, :] = torch.cat([first_points, extra_points], dim=0)
+                                in_targets[b, :] = torch.cat([in_targets[b, :-points_needed], extra_targets], dim=0)
+                            else:
+                                # padd with 0 unfilled windows
+                                in_targets[b, :] = torch.full((1, n_points), -1)
+                                in_points[b, :, :] = torch.zeros(1, n_points, points.shape[2]).to(device)
+                        else:
+                            # get duplicated points from previous windows
+                            rdm_list = np.random.randint(0, targets_w.shape[1], n_points)
+                            in_points[b, :, :] = points[b, rdm_list, :]  # [2048, 11]
+                            in_targets[b, :] = targets[b, rdm_list]  # [2048]
+
+            # transform targets into Long Tensor
+            in_targets = torch.LongTensor(in_targets.cpu()).to(device)
+            in_points = torch.unsqueeze(in_points, dim=3)  # [batch, 2048, 11, 1]
+            # concat points and targets into tensor w
+            pc_w = torch.cat((pc_w, in_points), dim=3)
+            targets_w = torch.cat((targets_w, in_targets), dim=1)
+
+        count_p = count_p + in_points.shape[1]
+        j += 1
+
+    return pc_w, targets_w
+
+
+def save_checkpoint(name, epoch, epochs_since_improvement, cls_model, seg_model, optimizer, accuracy, batch_size,
+                    learning_rate, number_of_points, weighing_method):
     state = {
-        'model': model.state_dict(),
+        'cls_model': cls_model.state_dict(),
+        'seg_model': seg_model.state_dict(),
         'optimizer': optimizer.state_dict(),
         'batch_size': batch_size,
         'lr': learning_rate,

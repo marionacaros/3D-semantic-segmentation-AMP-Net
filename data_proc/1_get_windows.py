@@ -50,13 +50,13 @@ def split_dataset_windows(DATASET_NAME, LAS_PATH, SEL_CLASS, min_p = 20):
                                                            show_prints=False)
     with open('dicts/dict_segmented_other_towers_w20p' + str(min_p) + DATASET_NAME + '.pkl', 'wb') as f:
         pickle.dump(dic_pc_towers, f)
-    with open('dicts/dict_center_other_towers_w20p' + str(min_p) + DATASET_NAME + '.json', 'w') as f:
+    with open('dicts/loc/dict_center_other_towers_w20p' + str(min_p) + DATASET_NAME + '.json', 'w') as f:
         json.dump(dic_center_towers, f)
 
     # Load dictionaries
     # with open('dicts/dict_segmented_towers_w20p' + str(min_p) + DATASET_NAME + '.pkl', 'rb') as f:
     #     dic_pc_towers = pickle.load(f)
-    with open('dicts/dict_center_towers_w20p' + str(min_p) + DATASET_NAME + '.json', 'r') as f:
+    with open('dicts/loc/dict_center_towers_w20p' + str(min_p) + DATASET_NAME + '.json', 'r') as f:
         dic_center_towers = json.load(f)
 
     # ------------------------------------------------ 3 ---------------------------------------------------------

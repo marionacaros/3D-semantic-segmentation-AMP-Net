@@ -50,7 +50,7 @@ class LidarDataset(data.Dataset):
                                  point_cloud_class=point_cloud_class,
                                  fixed_num_points=self.fixed_num_points,
                                  task=self.task,
-                                 c_sample=self.constrained_sampling)
+                                 constrained_sample=self.constrained_sampling)
 
     @staticmethod
     def prepare_data(point_file,
@@ -58,7 +58,8 @@ class LidarDataset(data.Dataset):
                      point_cloud_class=None,
                      fixed_num_points=True,
                      task='classification',
-                     c_sample=False):
+                     constrained_sample=False,
+                     max_points=2048*5):
 
         with open(point_file, 'rb') as f:
             pc = pickle.load(f).astype(np.float32)  # [2048, 11]
@@ -66,20 +67,20 @@ class LidarDataset(data.Dataset):
         np.random.shuffle(pc)
 
         # get points labeled for sampling
-        if c_sample:
+        if constrained_sample:
             pc = pc[pc[:, -1] == 1]
 
         # max num of points
-        if pc.shape[0] > 20480:
-            sampling_indices = np.random.choice(pc.shape[0], 20480)
+        if pc.shape[0] > max_points:
+            sampling_indices = np.random.choice(pc.shape[0], max_points)
             pc = pc[sampling_indices, :]
 
-        # sample points if needed
+        # sample points if fixed_num_points (no RNN)
         if fixed_num_points and pc.shape[0] > number_of_points:
             sampling_indices = np.random.choice(pc.shape[0], number_of_points)
             pc = pc[sampling_indices, :]
 
-        # duplicate points if needed
+        # duplicate points if needed (no RNN)
         elif fixed_num_points and pc.shape[0] < number_of_points:
             points_needed = number_of_points - pc.shape[0]
             rdm_list = np.random.randint(0, pc.shape[0], points_needed)
