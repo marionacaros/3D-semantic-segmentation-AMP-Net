@@ -19,41 +19,44 @@ class TransformationNet(nn.Module):
         self.bn_4 = nn.BatchNorm1d(256)
         self.bn_5 = nn.BatchNorm1d(128)
 
-        self.fc_1 = nn.Linear(256, 256,  bias=False)
-        self.fc_2 = nn.Linear(256, 128,  bias=False)
+        self.fc_1 = nn.Linear(256, 256, bias=False)
+        self.fc_2 = nn.Linear(256, 128, bias=False)
         self.fc_3 = nn.Linear(128, self.output_dim * self.output_dim)
 
     def forward(self, x):
         num_points = x.shape[1]
-        x = x.transpose(2, 1)
+        x = x.transpose(2, 1)  # [b, 2, 2048]
         x = F.relu(self.bn_1(self.conv_1(x)))
         x = F.relu(self.bn_2(self.conv_2(x)))
         x = F.relu(self.bn_3(self.conv_3(x)))
 
-        x = nn.MaxPool1d(num_points)(x)
+        x = nn.MaxPool1d(num_points)(x)  # [b, 256, 1]
         x = x.view(-1, 256)
 
-        x = F.relu(self.bn_4(self.fc_1(x))) # peta
+        x = F.relu(self.bn_4(self.fc_1(x)))
         x = F.relu(self.bn_5(self.fc_2(x)))
         x = self.fc_3(x)
 
         identity_matrix = torch.eye(self.output_dim)
+
         if torch.cuda.is_available():
             identity_matrix = identity_matrix.cuda()
-        x = x.view(-1, self.output_dim, self.output_dim) + identity_matrix
+
+        x = x.view(-1, self.output_dim, self.output_dim)
+        x = x + identity_matrix
         return x
+
 
 class BasePointNet(nn.Module):
 
-    def __init__(self, point_dimension, return_local_features=False):
+    def __init__(self, point_dimension, return_local_features=False, dataset=''):
         super(BasePointNet, self).__init__()
+        self.dataset = dataset
         self.return_local_features = return_local_features
         self.input_transform = TransformationNet(input_dim=point_dimension, output_dim=point_dimension)
         self.feature_transform = TransformationNet(input_dim=64, output_dim=64)
 
-        # self.conv_1 = nn.Conv1d(point_dimension, 64, 1)
-        self.conv_1 = nn.Conv1d(7, 64, 1, bias=False)  # changed from 3 ch to 7 channels to take I, NDVI, RGB into account
-        # self.conv_1 = nn.Conv1d(4, 64, 1)
+        self.conv_1 = nn.Conv1d(7, 64, 1, bias=False)  # 7 channels to take I, NDVI, RGB into account
         self.conv_2 = nn.Conv1d(64, 64, 1, bias=False)
         self.conv_3 = nn.Conv1d(64, 64, 1, bias=False)
         self.conv_4 = nn.Conv1d(64, 128, 1, bias=False)
@@ -72,7 +75,8 @@ class BasePointNet(nn.Module):
         input_transform = self.input_transform(x_tnet)
         x_tnet = torch.bmm(x_tnet, input_transform)  # Performs a batch matrix-matrix product
         x_tnet = torch.cat([x_tnet, x[:, :, 2].unsqueeze(2), x[:, :, 4].unsqueeze(2)], dim=2)  # concat z and intensity
-        x_tnet = torch.cat([x_tnet, x[:, :, 6].unsqueeze(2), x[:, :, 7].unsqueeze(2), x[:, :, 9].unsqueeze(2)], dim=2)  # concat Green Blue NDVI
+        x_tnet = torch.cat([x_tnet, x[:, :, 6].unsqueeze(2), x[:, :, 7].unsqueeze(2), x[:, :, 9].unsqueeze(2)],
+                           dim=2)  # concat Green Blue NDVI
         x_tnet = x_tnet.transpose(2, 1)  # [batch, dims, n_points]
 
         x = F.relu(self.bn_1(self.conv_1(x_tnet)))
@@ -127,13 +131,13 @@ class ClassificationPointNet(nn.Module):
 
 class RNNClassificationPointNet(nn.Module):
 
-    def __init__(self, num_classes, dropout=0.3, point_dimension=3, hidden_size=256):
+    def __init__(self, num_classes, dropout=0.3, point_dimension=3, hidden_size=128):
         super(RNNClassificationPointNet, self).__init__()
         self.hidden_size = hidden_size
 
-        self.base_pointnet = BasePointNet(return_local_features=False, point_dimension=point_dimension,)
-        self.gru_global = nn.GRU(hidden_size, hidden_size, batch_first=True, bidirectional=True)  # todo test bidirectional
-        self.fc_1 = nn.Linear(512, 256, bias=False)
+        self.base_pointnet = BasePointNet(return_local_features=True, point_dimension=point_dimension, )
+        self.gru_global = nn.GRU(256, hidden_size, batch_first=True, bidirectional=True)  # todo test bidirectional
+        self.fc_1 = nn.Linear(self.hidden_size * 2, 256, bias=False)
         self.fc_2 = nn.Linear(256, 64, bias=False)
         self.fc_3 = nn.Linear(64, num_classes)
 
@@ -143,38 +147,37 @@ class RNNClassificationPointNet(nn.Module):
         self.dropout_1 = nn.Dropout(dropout)
 
     def forward(self, x, hidden, get_preds):
-        scores = None
-        global_feature, feature_transform = self.base_pointnet(x)
+        local_global_features, feature_transform = self.base_pointnet(x)  # [b, np, 320] [b, 64, 64]
+        local_features = local_global_features[:, :, -64:]  # [batch, n_point, 64]
+        global_feature = local_global_features[:, 0, :-64]  # [batch, 256]
+
         global_feature = global_feature.view(-1, 1, 256)
-        global_feat_rnn, hidden = self.gru_global(global_feature, hidden) # [batch, 1, 512]
-        
+        global_feat_rnn, hidden = self.gru_global(global_feature, hidden)  # [batch, 1, 512] [2, b, 256]
+        # global_feat_rnn = (hidden[0, :, :] + hidden[1, :, :]).view(-1, 1, self.hidden_size)  # [b,1,hidden]
+
         # classify only with global_feat_rnn of last sampled point cloud window
         if get_preds:
-            global_feat_rnn = global_feat_rnn.view(-1, 512)
+            global_feat_rnn = global_feat_rnn.view(-1, self.hidden_size * 2)
             x = F.relu(self.bn_1(self.fc_1(global_feat_rnn)))
             x = F.relu(self.bn_2(self.fc_2(x)))
             x = self.dropout_1(x)
-            scores = F.log_softmax(self.fc_3(x), dim=1)
+            # scores = F.log_softmax(self.fc_3(x), dim=1)
+            out = self.fc_3(x)
 
-        return scores, hidden, feature_transform
+        return out, hidden, feature_transform, local_features
 
     def initHidden(self, x, device):
         """tensor of shape (D * {num_layers}, N, H_out) containing the initial hidden state for the input sequence.
         Defaults to zeros if not provided """
         return torch.zeros(2, x.shape[0], self.hidden_size, device=device)  # [layers, x.size[0], hidden]
 
-    # def initHidden_feat(self, x, device):
-    #     return torch.zeros(1, x.shape[0], 64, device=device)  # [layers, x.size[0], hidden]
-
 
 class RNNSegmentationPointNet(nn.Module):
 
-    def __init__(self, num_classes, hidden_size, point_dimension=3):
+    def __init__(self, num_classes):
         super(RNNSegmentationPointNet, self).__init__()
-        self.hidden_size = hidden_size
-        self.base_pointnet = BasePointNet(return_local_features=True, point_dimension=point_dimension)
 
-        self.conv_1 = nn.Conv1d(576, 256, 1)  # 576 if bidirectional GRU, otherwise 320 input ch
+        self.conv_1 = nn.Conv1d(320, 256, 1)
         self.conv_2 = nn.Conv1d(256, 128, 1)
         self.conv_3 = nn.Conv1d(128, 64, 1)
 
@@ -184,21 +187,19 @@ class RNNSegmentationPointNet(nn.Module):
         self.bn_2 = nn.BatchNorm1d(128)
         self.bn_3 = nn.BatchNorm1d(64)
 
-        self.gru = nn.GRU(hidden_size, hidden_size, batch_first=True, bidirectional=True)  # todo test bidirectional
-        self.fc = nn.Linear(hidden_size, num_classes)
-        self.softmax = nn.LogSoftmax(dim=-1)
+        # self.fc = nn.Linear(hidden_size, num_classes)
+        # self.softmax = nn.LogSoftmax(dim=-1)
 
-    def forward(self, x, hidden):
-        local_global_features, feature_transform = self.base_pointnet(x)  # [batch, n_point, 1088]
-        local_features = local_global_features[:, :, 256:]  # [batch, n_point, 64]
-        num_points = local_features.shape[1]
-        global_feature = local_global_features[:, 0, :256]  # [batch, 256]
-        global_feature = global_feature.view(-1, 1, 256)
+    def forward(self, hidden_cls, local_feat):
+        hid_size = hidden_cls.shape[2]
+        global_feat_rnn = torch.cat((hidden_cls[0, :, :], hidden_cls[1, :, :]), 1)
+        # global_feat_rnn = global_feat_rnn.view(-1, 1, global_feat_rnn.shape[1])
 
-        global_feat_rnn, hidden = self.gru(global_feature, hidden)
+        # global_feat_rnn shape [b,1,hidden]
+        num_points = local_feat.shape[1]
 
-        global_feat_rnn = global_feat_rnn.view(-1, 512, 1).repeat(1, 1, num_points)  # todo test global feature 512
-        local_global_rnn = torch.cat([global_feat_rnn.transpose(2, 1), local_features], 2)
+        global_feat_rnn = global_feat_rnn.view(-1, global_feat_rnn.shape[1], 1).repeat(1, 1, num_points)  # [b, h, n_points]
+        local_global_rnn = torch.cat([global_feat_rnn.transpose(2, 1), local_feat], 2)
 
         # local_global_rnn  # [batch, n_points, 1088]
         x = local_global_rnn.transpose(2, 1)  # [batch, 1088, n_points]
@@ -207,41 +208,12 @@ class RNNSegmentationPointNet(nn.Module):
         x = F.relu(self.bn_3(self.conv_3(x)))  # [batch, 128, n_points]
 
         x = self.conv_4(x)
-        x = x.transpose(2, 1)
-        out = self.softmax(x)
+        out = x.transpose(2, 1)
+        # out = self.softmax(x)
 
-        return out, hidden, feature_transform
+        return out
 
-    def initHidden(self, x, device):
-        """tensor of shape (D * {num_layers}, N, H_out) containing the initial hidden state for the input sequence.
-        Defaults to zeros if not provided """
-        return torch.zeros(2, x.shape[0], self.hidden_size, device=device)  # [layers, x.size[0], hidden]
-
-
-class SegmentationPointNet(nn.Module):
-
-    def __init__(self, num_classes, point_dimension=3):
-        super(SegmentationPointNet, self).__init__()
-        self.base_pointnet = BasePointNet(return_local_features=True, point_dimension=point_dimension)
-
-        self.conv_1 = nn.Conv1d(320, 256, 1)
-        self.conv_2 = nn.Conv1d(256, 128, 1)
-        self.conv_3 = nn.Conv1d(128, 64, 1)
-        self.conv_4 = nn.Conv1d(64, num_classes, 1)
-
-        self.bn_1 = nn.BatchNorm1d(256)
-        self.bn_2 = nn.BatchNorm1d(128)
-        self.bn_3 = nn.BatchNorm1d(64)
-
-    def forward(self, x):
-        local_global_features, feature_transform = self.base_pointnet(x)
-        x = local_global_features
-        x = x.transpose(2, 1)
-        x = F.relu(self.bn_1(self.conv_1(x)))
-        x = F.relu(self.bn_2(self.conv_2(x)))
-        x = F.relu(self.bn_3(self.conv_3(x)))
-
-        x = self.conv_4(x)
-        x = x.transpose(2, 1)
-
-        return F.log_softmax(x, dim=-1), feature_transform
+    # def initHidden(self, x, device):
+    #     """tensor of shape (D * {num_layers}, N, H_out) containing the initial hidden state for the input sequence.
+    #     Defaults to zeros if not provided """
+    #     return torch.zeros(2, x.shape[0], self.hidden_size, device=device)  # [layers, x.size[0], hidden]
