@@ -13,69 +13,87 @@ class LidarDataset(data.Dataset):
     POINT_DIMENSION = 2
     NUM_SEGMENTATION_CLASSES = 2
 
-    def __init__(self, dataset_folder, task='classification', number_of_points=None,
+    def __init__(self, dataset_folder,
+                 task='classification',
+                 number_of_points=None,
+                 number_of_windows=None,
                  files=None,
                  fixed_num_points=True,
-                 c_sample=False):
+                 c_sample=False,
+                 split='kmeans'):
         # 0 -> no tower
         # 1 -> tower
 
         self.dataset_folder = dataset_folder + '/'  # /dades/LIDAR/towers_detection/datasets/
-        self.number_of_points = number_of_points
         self.task = task
+        self.n_points = number_of_points
+        self.n_windows = number_of_windows
         self.files = files
         self.fixed_num_points = fixed_num_points
         self.classes_mapping = {}
-        self.constrained_sampling=c_sample
+        self.constrained_sampling = c_sample
+        self.split = split
+        if split == 'kmeans':
+            self.paths_files = [self.dataset_folder + 'kmeans_' + f for f in self.files]
+        else:
+            self.paths_files = [self.dataset_folder + f for f in self.files]
+        self._init_mapping()
+
+    def __len__(self):
+        return len(self.paths_files)
+
+    def _init_mapping(self):
+
         for file in self.files:
             if 'pc_' in file:
                 self.classes_mapping[file] = 0
             elif 'tower_' in file:
                 self.classes_mapping[file] = 1
+
         self.len_towers = sum(value == 1 for value in self.classes_mapping.values())
         self.len_landscape = sum(value == 0 for value in self.classes_mapping.values())
 
-        self.paths_files = [self.dataset_folder + f for f in self.files]
-
-    def __len__(self):
-        return len(self.paths_files)
-
     def __getitem__(self, index):
-        point_cloud_class = None
-        if self.task == 'classification':
-            point_cloud_class = self.classes_mapping[self.files[index]]  # needed for classification
 
-        return self.prepare_data(self.paths_files[index],
-                                 self.number_of_points,
-                                 point_cloud_class=point_cloud_class,
-                                 fixed_num_points=self.fixed_num_points,
-                                 task=self.task,
-                                 constrained_sample=self.constrained_sampling)
+        filename = self.paths_files[index]
+
+        if not self.split == 'kmeans':
+            pc_w = self.prepare_data(filename,
+                                     self.n_points,
+                                     fixed_num_points=self.fixed_num_points,
+                                     constrained_sample=self.constrained_sampling,
+                                     max_points=self.n_windows * self.n_points)
+            # classification: pc size [10240,11]
+        else:
+            # load data clustered in windows with k-means
+            pc_w = torch.load(filename, map_location=torch.device('cpu'))
+            # pc_w size [2048, dims, w_len]
+        labels = self.get_labels(pc_w, self.classes_mapping[self.files[index]], self.task)
+
+        return pc_w, labels, filename
 
     @staticmethod
     def prepare_data(point_file,
                      number_of_points=None,
-                     point_cloud_class=None,
                      fixed_num_points=True,
-                     task='classification',
                      constrained_sample=False,
-                     max_points=2048*5):
+                     max_points=2048 * 5):
 
         with open(point_file, 'rb') as f:
             pc = pickle.load(f).astype(np.float32)  # [2048, 11]
         # pc = pc[:,:10]
         np.random.shuffle(pc)
 
-        # get points labeled for sampling
+        # if constrained sampling -> get points labeled for sampling
         if constrained_sample:
-            pc = pc[pc[:, -1] == 1]
+            pc = pc[pc[:, -1] == 1]  # should be label of position 11
 
-        # max num of points
+        # if size > max num of points -> random sample
         if pc.shape[0] > max_points:
             sampling_indices = np.random.choice(pc.shape[0], max_points)
             pc = pc[sampling_indices, :]
 
-        # sample points if fixed_num_points (no RNN)
+        # sample points if fixed_num_points (random sampling, no RNN)
         if fixed_num_points and pc.shape[0] > number_of_points:
             sampling_indices = np.random.choice(pc.shape[0], number_of_points)
             pc = pc[sampling_indices, :]
@@ -87,17 +105,25 @@ class LidarDataset(data.Dataset):
             extra_points = pc[rdm_list, :]
             pc = np.concatenate([pc, extra_points], axis=0)
 
+        pc = torch.from_numpy(pc)
+        return pc
+
+    @staticmethod
+    def get_labels(pointcloud,
+                   point_cloud_class=None,
+                   task='classification'):
+
         if task == 'segmentation':
-            segment_labels = pc[:, 3].astype(np.int)  # [2048,1]
+            segment_labels = pointcloud[:, 3].astype(np.int)  # [2048,1]
             segment_labels[segment_labels != 15] = 0
             segment_labels[segment_labels == 15] = 1
             labels = segment_labels
 
         elif task == 'classification':
-            labels = point_cloud_class
+            labels = [point_cloud_class]
+            labels = labels * pointcloud.shape[2]
 
-        pc = torch.from_numpy(pc)
-        return pc, labels, point_file
+        return labels
 
 
 class BdnDataset(data.Dataset):

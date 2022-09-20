@@ -41,6 +41,7 @@ class TransformationNet(nn.Module):
 
         if torch.cuda.is_available():
             identity_matrix = identity_matrix.cuda()
+            # identity_matrix = identity_matrix.to('cpu')
 
         x = x.view(-1, self.output_dim, self.output_dim)
         x = x + identity_matrix
@@ -125,51 +126,78 @@ class ClassificationPointNet(nn.Module):
         x = F.relu(self.bn_1(self.fc_1(global_feature)))
         x = F.relu(self.bn_2(self.fc_2(x)))
         x = self.dropout_1(x)
+        x = self.fc_3(x)
+        out = F.log_softmax(x, dim=1)
 
-        return F.log_softmax(self.fc_3(x), dim=1), feature_transform
+        return out, feature_transform
 
 
-class RNNClassificationPointNet(nn.Module):
+class GRUPointNet(nn.Module):
 
-    def __init__(self, num_classes, dropout=0.3, point_dimension=3, hidden_size=128):
-        super(RNNClassificationPointNet, self).__init__()
+    def __init__(self, point_dimension=3, hidden_size=128, global_feat_size=256, num_att_heads=2):
+        super(GRUPointNet, self).__init__()
         self.hidden_size = hidden_size
+        self.global_feat_size = global_feat_size
+        self.att_heads = num_att_heads
 
         self.base_pointnet = BasePointNet(return_local_features=True, point_dimension=point_dimension, )
-        self.gru_global = nn.GRU(256, hidden_size, batch_first=True, bidirectional=True)  # todo test bidirectional
-        self.fc_1 = nn.Linear(self.hidden_size * 2, 256, bias=False)
-        self.fc_2 = nn.Linear(256, 64, bias=False)
-        self.fc_3 = nn.Linear(64, num_classes)
+        self.gru_global = nn.GRU(self.global_feat_size, hidden_size, batch_first=True, bidirectional=True)
 
-        self.bn_1 = nn.BatchNorm1d(256)
-        self.bn_2 = nn.BatchNorm1d(64)
-
-        self.dropout_1 = nn.Dropout(dropout)
-
-    def forward(self, x, hidden, get_preds):
+    def forward(self, x, hidden):
         local_global_features, feature_transform = self.base_pointnet(x)  # [b, np, 320] [b, 64, 64]
         local_features = local_global_features[:, :, -64:]  # [batch, n_point, 64]
         global_feature = local_global_features[:, 0, :-64]  # [batch, 256]
 
-        global_feature = global_feature.view(-1, 1, 256)
-        global_feat_rnn, hidden = self.gru_global(global_feature, hidden)  # [batch, 1, 512] [2, b, 256]
-        # global_feat_rnn = (hidden[0, :, :] + hidden[1, :, :]).view(-1, 1, self.hidden_size)  # [b,1,hidden]
+        global_feature = global_feature.view(-1, 1, self.global_feat_size)
+        out_h, hidden = self.gru_global(global_feature, hidden)  # [batch, 1, 512] [2, b, 256]
+        out_h = out_h.view(-1, self.hidden_size * self.att_heads)  # [batch, 512]
+        # global_feat_rnn = self.fc_hidden(global_feat_rnn)  # [batch, 1, 256]
 
-        # classify only with global_feat_rnn of last sampled point cloud window
-        if get_preds:
-            global_feat_rnn = global_feat_rnn.view(-1, self.hidden_size * 2)
-            x = F.relu(self.bn_1(self.fc_1(global_feat_rnn)))
-            x = F.relu(self.bn_2(self.fc_2(x)))
-            x = self.dropout_1(x)
-            # scores = F.log_softmax(self.fc_3(x), dim=1)
-            out = self.fc_3(x)
-
-        return out, hidden, feature_transform, local_features
+        return out_h, feature_transform, local_features
 
     def initHidden(self, x, device):
         """tensor of shape (D * {num_layers}, N, H_out) containing the initial hidden state for the input sequence.
         Defaults to zeros if not provided """
         return torch.zeros(2, x.shape[0], self.hidden_size, device=device)  # [layers, x.size[0], hidden]
+
+
+class AttentionClassifier(nn.Module):
+    def __init__(self, embed_dim, num_heads, num_classes=2, dropout=0.3, num_w=5):
+        super(AttentionClassifier, self).__init__()
+        self.embed_dim = embed_dim  # todo test 2046, 3072
+
+        # self.conv_0 = nn.Conv1d(num_w, 1, 1, bias=True)
+
+        self.attention = nn.MultiheadAttention(embed_dim,
+                                               num_heads=num_heads,  # todo test 10
+                                               dropout=dropout)
+
+        self.conv_1 = nn.Conv1d(num_w, 1, 1, bias=True)
+        self.fc_2 = nn.Linear(512, 128)
+        self.fc_3 = nn.Linear(128, num_classes)
+
+        self.bn_0 = nn.BatchNorm1d(2048)
+        self.bn_2 = nn.BatchNorm1d(128)
+
+        self.dropout_1 = nn.Dropout(dropout)
+
+    def forward(self, x, attn_mask=None):
+
+        # x = F.relu(self.bn_0(self.conv_0(x)))
+
+        attn_output, attn_output_weights = self.attention(x, x, x,
+                                                          key_padding_mask=None,
+                                                          need_weights=True,
+                                                          attn_mask=attn_mask)
+        # [w_len, b, 512] [b, w_len, w_len]
+        attn_output = attn_output.view(-1, attn_output.shape[0], self.embed_dim)  # [b, w_len, 512]
+
+        x = F.relu(self.conv_1(attn_output))  # [b, 1, 512]
+        x = x.view(-1, 512)
+        x = F.relu(self.bn_2(self.fc_2(x)))
+        out = self.fc_3(x)
+
+        return out, attn_output_weights
 
 
 class RNNSegmentationPointNet(nn.Module):

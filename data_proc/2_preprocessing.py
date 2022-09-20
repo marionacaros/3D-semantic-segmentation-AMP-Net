@@ -2,11 +2,14 @@ import hashlib
 import logging
 import os
 import random
-
 from utils import *
 import pickle
 import laspy
 import time
+from k_means_constrained import KMeansConstrained
+import itertools
+from pointNet.utils import plot_2d_sequence_tensorboard, plot_3d_sequence_tensorboard
+import torch
 
 logging.basicConfig(format='--- %(asctime)s %(levelname)-8s --- %(message)s',
                     level=logging.INFO,
@@ -45,7 +48,7 @@ def remove_ground_and_outliers(files_path, out_path, max_z=100.0, max_intensity=
     count_less_2000 = 0
     total_count = 0
 
-    out_path = os.path.join(out_path, 'sampled_'+str(n_points))
+    out_path = os.path.join(out_path, 'sampled_' + str(n_points))
     logging.info(f'output path: {out_path}')
     if not os.path.exists(out_path):
         os.makedirs(out_path)
@@ -160,7 +163,8 @@ def remove_ground_and_outliers(files_path, out_path, max_z=100.0, max_intensity=
                         with open(f_path + '.pkl', 'wb') as f:
                             pickle.dump(pc, f)
                     else:
-                        print(f'Point cloud {fileName} not stored. Less than {n_points} points. Only {pc.shape[0]} points')
+                        print(
+                            f'Point cloud {fileName} not stored. Less than {n_points} points. Only {pc.shape[0]} points')
 
             except Exception as e:
                 print(f'Error {e} in file {fileName}')
@@ -170,22 +174,21 @@ def remove_ground_and_outliers(files_path, out_path, max_z=100.0, max_intensity=
     print(f'total_count: {total_count}')
 
 
-def sampling(files_path, n_points, TH_1=3.0, TH_2=8.0):
+def constrained_sampling(path_sampled, n_points, TH_1=3.0, TH_2=8.0):
     count_interpolate = 0
     count_sample3 = 0
     count_sample8 = 0
     count_sample_all = 0
 
-    path_sampled = os.path.join(files_path, 'sampled_'+str(n_points))
     logging.info(f'path: {path_sampled}')
     # if not os.path.exists(path_sampled):
     #     os.makedirs(path_sampled)
-    for file in progressbar(glob.glob(os.path.join(path_sampled,'*pkl'))):
+    for file in progressbar(glob.glob(os.path.join(path_sampled, '*pkl'))):
         fileName = file.split('/')[-1].split('.')[0]
         with open(file, 'rb') as f:
             pc = pickle.load(f).astype(np.float32)
         # add column of zeros
-        pc = np.c_[pc, np.zeros(pc.shape[0])] # column ix=10
+        pc = np.c_[pc, np.zeros(pc.shape[0])]  # column ix=10
 
         # if number of points > n_points sampling is needed
         if pc.shape[0] > n_points:
@@ -200,7 +203,7 @@ def sampling(files_path, n_points, TH_1=3.0, TH_2=8.0):
             # if num points in vegetation > points to sample
             if pc_veg.shape[0] > end_veg_p:
                 # rdm sample points < thresh 1
-                sampling_indices = random.sample(range(0,pc_veg.shape[0]), k=end_veg_p)
+                sampling_indices = random.sample(range(0, pc_veg.shape[0]), k=end_veg_p)
             else:
                 sampling_indices = range(pc_veg.shape[0])
             # pc_veg = pc_veg[sampling_indices, :]
@@ -223,7 +226,7 @@ def sampling(files_path, n_points, TH_1=3.0, TH_2=8.0):
                     end_veg_p = n_points
                 # if num points in vegetation > points to sample
                 if pc_high_veg.shape[0] > end_veg_p:
-                    sampling_indices = random.sample(range(0,pc_high_veg.shape[0]), k=end_veg_p)
+                    sampling_indices = random.sample(range(0, pc_high_veg.shape[0]), k=end_veg_p)
                     # pc_high_veg = pc_high_veg[sampling_indices, :]
                     pc_high_veg[sampling_indices, 10] = 1
                     pc_sampled = np.concatenate((pc_other, pc_high_veg), axis=0)
@@ -233,7 +236,7 @@ def sampling(files_path, n_points, TH_1=3.0, TH_2=8.0):
                 # if we still have > n_points in point cloud
                 if pc_sampled.shape[0] > n_points:
                     # rdm sample all point cloud
-                    sampling_indices = random.sample(range(0,pc_sampled.shape[0]), k=n_points)
+                    sampling_indices = random.sample(range(0, pc_sampled.shape[0]), k=n_points)
                     # pc_sampled = pc_sampled[sampling_indices, :]
                     pc_sampled[:, 10] = 0
                     pc_sampled[sampling_indices, 10] = 1
@@ -243,7 +246,7 @@ def sampling(files_path, n_points, TH_1=3.0, TH_2=8.0):
                 pickle.dump(pc_sampled, f)
 
         elif pc.shape[0] == n_points:
-            pc[:,10]=1
+            pc[:, 10] = 1
             pc_sampled = pc
             with open(os.path.join(path_sampled, fileName) + '.pkl', 'wb') as f:
                 pickle.dump(pc_sampled, f)
@@ -295,37 +298,102 @@ def sampling(files_path, n_points, TH_1=3.0, TH_2=8.0):
     # print(f'Discarded point clouds because < {MIN_POINTS} points: ', c_min_points)
 
 
+def split_kmeans(in_pc, n_points, plot=False, writer_tensorboard=None, filename=''):
+    """ split point cloud in windows of fixed size (n_points) with k-means
+            Fill empty windows with duplicate points of previous windows
+            Number of points must be multiple of n_points, so points left over are removed
+
+            :param in_pc: input point cloud [total_points, dims]
+            :param n_points: number of points for each window
+            :param plot: bool set to True for plotting windows
+            :param writer_tensorboard:
+            :param filename: ''
+
+            :return pc_w: tensor containing point cloud in windows of fixed size [2048, 11, w_len]
+            :return targets_w: tensor of targets [w_len]
+    """
+
+    # if point cloud is larger than n_points we cluster them with k-means
+    if in_pc.shape[0] > n_points:
+
+        # tensor for points per window
+        pc_w = torch.FloatTensor()
+
+        if in_pc.shape[0] % n_points != 0:
+            # Number of points must be multiple of n_points, so points left over are removed
+            in_pc = in_pc[:n_points * (in_pc.shape[0] // n_points), :]
+        # K-means clustering
+        k_clusters = int(np.floor(in_pc.shape[0] / n_points))
+        clf = KMeansConstrained(n_clusters=k_clusters, size_min=n_points, size_max=n_points)
+        # todo decide how many features get for clustering
+        i_f = [0, 1, 9]  # x,y, NDVI
+        i_cluster = clf.fit_predict(in_pc[:, i_f].numpy())  # array of ints -> indices to each of the windows
+
+        # get tuple cluster points
+        tuple_cluster_points = list(zip(i_cluster, in_pc))
+        cluster_lists = [list(item[1]) for item in
+                         itertools.groupby(sorted(tuple_cluster_points, key=lambda x: x[0]), key=lambda x: x[0])]
+        if plot:
+            plot_3d_sequence_tensorboard(in_pc, writer_tensorboard, filename, i_w=0, title='original',
+                                         n_clusters=k_clusters)
+
+        for cluster in cluster_lists:
+            pc_features_cluster = torch.stack([feat for (i_c, feat) in cluster])  # [2048, 11]
+            pc_w = torch.cat((pc_w, pc_features_cluster.unsqueeze(2)), 2)  # [2048, 11, 1]
+
+            if plot:
+                plot_3d_sequence_tensorboard(pc_features_cluster, writer_tensorboard, filename,
+                                             i_w=cluster[0][0] + 1,
+                                             title='cluster ' + str(cluster[0][0]), n_clusters=k_clusters)
+    else:
+        pc_w = in_pc.unsqueeze(2)
+
+    return pc_w
+
+
 if __name__ == '__main__':
 
     N_POINTS = 2048
     MAX_Z = 100.0
     raw_data = False
-    logging.info(f'Want raw data: {raw_data}') # if raw data == True code does not remove ground points
+    logging.info(f'Want raw data: {raw_data}')  # if raw data == True code does not remove ground points
     out_path = '/dades/LIDAR/towers_detection/datasets/pc_towers_40x40'
 
-
-    for DATASET in ['CAT3','RIBERA', 'BDN']:
+    for DATASET in ['CAT3', 'RIBERA', 'BDN']:
         paths = ['datasets/' + DATASET + '/w_towers_40x40_10p',
                  'datasets/' + DATASET + '/w_no_towers_40x40']
 
         start_time = time.time()
-        for files_path in paths:
-            logging.info(f'Input path: {files_path}')
+        for input_path in paths:
+            logging.info(f'Input path: {input_path}')
 
             # IMPORTANT !!!!!!!!!
             # execute compute_pdal_bash.sh  # to get HeighAboveGround
 
             # ------ Remove ground, noise and outliers and normalize ------
             logging.info(f"1. Remove points of ground, noise and outliers and normalize ")
-            remove_ground_and_outliers(files_path, out_path, max_z=MAX_Z, max_intensity=5000,
-                                                        n_points=N_POINTS, raw_data=raw_data, dataset=DATASET)
+            remove_ground_and_outliers(input_path, out_path, max_z=MAX_Z, max_intensity=5000,
+                                       n_points=N_POINTS, raw_data=raw_data, dataset=DATASET)
             print("--- Remove ground and noise time: %s h ---" % (round((time.time() - start_time) / 3600, 3)))
             rm_ground_time = time.time()
 
-    # ------ sampling ------
+    # ------------------------------------- constrained sampling -------------------------------------
     logging.info(f"2. Sampling")
-    sampling(out_path,  n_points=N_POINTS, TH_1=3.0 / MAX_Z, TH_2=8.0 / MAX_Z)
+    path_sampled = os.path.join(input_path, 'sampled_' + str(N_POINTS))
+    constrained_sampling(path_sampled, n_points=N_POINTS, TH_1=3.0 / MAX_Z, TH_2=8.0 / MAX_Z)
 
-    print("--- Sample and interpolate time: %s h ---" % (round((time.time() - rm_ground_time) / 3600, 3)))
-    print("--- TOTAL TIME: %s h ---" % (round((time.time() - start_time) / 3600, 3)))
-    
+    # ------------------------------------- k-means clustering -------------------------------------
+    logging.info(f"3. K-means clustering")
+    i_path = path_sampled
+
+    for file in progressbar(glob.glob(os.path.join(i_path, '*pkl'))):
+        fileName = file.split('/')[-1]
+        with open(file, 'rb') as f:
+            pc = pickle.load(f).astype(np.float32)
+
+        pc_w = split_kmeans(torch.Tensor(pc), n_points=N_POINTS, plot=False, writer_tensorboard=None, filename=fileName)
+        o_path = '/dades/LIDAR/towers_detection/datasets/pc_kmeans/'
+        torch.save(pc_w, o_path + 'kmeans_' + fileName)
+
+    # print("--- Sample and interpolate time: %s h ---" % (round((time.time() - rm_ground_time) / 3600, 3)))
+    # print("--- TOTAL TIME: %s h ---" % (round((time.time() - start_time) / 3600, 3)))

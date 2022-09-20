@@ -5,16 +5,16 @@ import time
 from progressbar import progressbar
 from torch.utils.data import random_split
 from torch.utils.tensorboard import SummaryWriter
-from datasets import LidarDataset
-from model.light_pointnet import ClassificationPointNet
-from model.light_pointnet_IGBVI import ClassificationPointNet_IGBVI
+from pointNet.datasets import LidarDataset
+from pointNet.model.light_pointnet import ClassificationPointNet
+from pointNet.model.light_pointnet_IGBVI import ClassificationPointNet_IGBVI
 # from model.pointnet import *
 
 import logging
 import datetime
 from sklearn.metrics import balanced_accuracy_score
 import warnings
-from utils import *
+from pointNet.utils import *
 from prettytable import PrettyTable
 
 warnings.filterwarnings('ignore')

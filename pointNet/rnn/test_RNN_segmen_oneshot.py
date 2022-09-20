@@ -1,20 +1,19 @@
+
 import argparse
 import json
 import time
-
-import torch
 from progressbar import progressbar
 from torch.utils.data import random_split
 import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
-from datasets import LidarDataset
-from model.pointnetRNN import RNNClassificationPointNet, RNNSegmentationPointNet
+from pointNet.datasets import LidarDataset
+from pointNet.model.pointnetRNN import GRUPointNet, RNNSegmentationPointNet
 import logging
 import datetime
 from sklearn.metrics import balanced_accuracy_score
 import warnings
-from utils import *
-from collate_fns import *
+from pointNet.utils import *
+from pointNet.collate_fns import *
 from prettytable import PrettyTable
 
 from sklearn.metrics import precision_recall_curve
@@ -71,9 +70,9 @@ def test(dataset_folder,
                                                   drop_last=False,
                                                   collate_fn=collate_segmen_padd)
 
-    cls_model = RNNClassificationPointNet(num_classes=test_dataset.NUM_SEGMENTATION_CLASSES,
-                                          hidden_size=128,
-                                          point_dimension=test_dataset.POINT_DIMENSION)
+    cls_model = GRUPointNet(num_classes=test_dataset.NUM_SEGMENTATION_CLASSES,
+                            hidden_size=128,
+                            point_dimension=test_dataset.POINT_DIMENSION)
     seg_model = RNNSegmentationPointNet(num_classes=test_dataset.NUM_SEGMENTATION_CLASSES)
 
     cls_model.to(device)
@@ -121,52 +120,28 @@ def test(dataset_folder,
         # segmentation shapes : [b, n_samples, dims], [b, n_samples], [b], [b], [b]
 
         points, targets = points.to(device), targets.to(device)  # ([batch, 18802, 11]
-        # len_w = len_w.to(device)
+        len_w = len_w.to(device)
 
         cls_model = cls_model.eval()
         hidden = cls_model.initHidden(points, device)
 
-        # split into windows of fixed size and duplicate points up to 4 windows
-        pc_w, targets = split4segmen_test(points, n_points, False, writer_test, filenames, lengths='',
-                                                 targets=targets,
-                                                 device=device,
-                                                 duplicate=True)
+        # split into windows of fixed size
+        # pc_w, targets = sample_point_cloud(points, n_points, False, writer_test, filenames, lengths='', targets=targets,
+        #                                    task='segmentation', device=device)
         targets = targets.reshape(-1).cpu().numpy()
-        # mask = targets != [-1] * len(targets)
-        # targets = targets[mask]
 
-        preds_pc = []
-        # loop over windows
-        for w in range(pc_w.shape[3]):
-            in_points = pc_w[:, :, :, w]
-            # get hidden from classification model
-            _, hidden, feat_transf, local_features = cls_model(in_points, hidden, get_preds=True)
-            # [b, n_points, 2] [2, b, 128] [b,64,64]
+        _, hidden, feat_transf, local_features = cls_model(points, hidden, get_preds=True)
+        # [b, n_points, 2] [2, b, 128] [b,64,64]
 
-            # get predictions of segmentation model
-            logits = seg_model(hidden, local_features)  # [b, 2048, 2]
-            # logits = logits.reshape(-1, logits.shape[2])
-            # targets_w = targets[:, w * n_points: (w + 1) * n_points]
+        # get predictions of segmentation model
+        logits = seg_model(hidden, local_features)  # [b, 2048, 2]
+        logits = logits.reshape(-1, logits.shape[2])
+        log_probs = F.log_softmax(logits.detach().cpu(), dim=1)
+        probs = torch.exp(log_probs)
+        preds_pc = log_probs.data.max(1)[1]
 
-            # get probabilities and predictions
-            log_probs = F.log_softmax(logits.detach().cpu(), dim=1)
-            probs = torch.exp(log_probs)
-            # preds = log_probs.data.max(1)[1]
-            preds = probs.data.max(2)[1]
-            preds = preds.unsqueeze(-1)
-
-            if w == 0:
-                preds_pc = preds
-            else:
-                preds_pc = torch.cat((preds_pc, preds), 2)
-
-        # preds_pc = preds_pc.reshape(-1)
-        # preds_sum = torch.sum(preds_pc, 2)
-        # preds_pc = preds_sum > 2
         all_positive = (np.array(targets) == np.ones(len(targets))).sum()  # TP + FN
         all_neg = (np.array(targets) == np.zeros(len(targets))).sum()  # TN + FP
-        # apply mask
-        # preds_pc = preds_pc[mask]
         detected_positive = (np.array(preds_pc) == np.ones(len(targets)))  # boolean with positions of 1s
         detected_negative = (np.array(preds_pc) == np.zeros(len(targets)))  # boolean with positions of 0s
 
@@ -175,11 +150,6 @@ def test(dataset_folder,
         tn = np.logical_and(corrects, detected_negative).sum()
         fp = np.array(detected_positive).sum() - tp
         fn = np.array(detected_negative).sum() - tn
-
-        # summarize scores
-        # file_name = file_name[0].split('/')[-1]
-        # print(file_name)
-        # print('detected_positive: ', np.array(detected_positive).sum())
 
         iou_veg = tn / (all_neg + fn)
 

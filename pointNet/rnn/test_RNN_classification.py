@@ -5,14 +5,14 @@ from progressbar import progressbar
 from torch.utils.data import random_split
 import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
-from datasets import LidarDataset
-from model.pointnetRNN import RNNClassificationPointNet, RNNSegmentationPointNet
+from pointNet.datasets import LidarDataset
+from pointNet.model.pointnetRNN import GRUPointNet, RNNSegmentationPointNet
 import logging
 import datetime
 from sklearn.metrics import balanced_accuracy_score
 import warnings
-from utils import *
-from collate_fns import *
+from pointNet.utils import *
+from pointNet.collate_fns import *
 from prettytable import PrettyTable
 
 from sklearn.metrics import precision_recall_curve
@@ -72,9 +72,9 @@ def test(dataset_folder,
                                                   drop_last=False,
                                                   collate_fn=collate_classif_padd)
 
-    model = RNNClassificationPointNet(num_classes=test_dataset.NUM_SEGMENTATION_CLASSES,
-                                      hidden_size=128,
-                                      point_dimension=test_dataset.POINT_DIMENSION)
+    model = GRUPointNet(num_classes=test_dataset.NUM_SEGMENTATION_CLASSES,
+                        hidden_size=128,
+                        point_dimension=test_dataset.POINT_DIMENSION)
     model.to(device)
     logging.info('--- Checkpoint loaded ---')
     model.load_state_dict(checkpoint['model'])

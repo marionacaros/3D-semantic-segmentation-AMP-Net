@@ -2,12 +2,12 @@ import argparse
 import time
 from progressbar import progressbar
 from torch.utils.data import random_split
-from datasets import LidarDataset
-from model.light_pointnet import ClassificationPointNet
-from model.light_pointnet_IGBVI import ClassificationPointNet_IGBVI
+from pointNet.datasets import LidarDataset
+from pointNet.model.light_pointnet import ClassificationPointNet
+from pointNet.model.light_pointnet_IGBVI import ClassificationPointNet_IGBVI
 # from model.pointnet import *
 import logging
-from utils import *
+from pointNet.utils import *
 import json
 
 from sklearn.metrics import precision_recall_curve

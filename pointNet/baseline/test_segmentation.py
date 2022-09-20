@@ -1,27 +1,15 @@
-
 import argparse
-import json
+import sys
+import pickle
 import time
 from progressbar import progressbar
 from torch.utils.data import random_split
-import torch.nn.functional as F
-from torch.utils.tensorboard import SummaryWriter
-from datasets import LidarDataset
-from model.pointnetRNN import RNNClassificationPointNet, RNNSegmentationPointNet
+from pointNet.datasets import LidarDataset
+from pointNet.model.pointnetRNN import *
 import logging
-import datetime
-from sklearn.metrics import balanced_accuracy_score
-import warnings
-from utils import *
-from collate_fns import *
-from prettytable import PrettyTable
-
-from sklearn.metrics import precision_recall_curve
-from sklearn.metrics import f1_score
-from sklearn.metrics import auc
-from collections import Counter
-
-warnings.filterwarnings('ignore')
+from pointNet.utils import *
+# from model.pointnet import *
+from pointNet.model.light_pointnet_IGBVI import *
 
 if torch.cuda.is_available():
     logging.info(f"cuda available")
@@ -37,17 +25,14 @@ def test(dataset_folder,
          number_of_workers,
          model_checkpoint,
          path_list_files='pointNet/data/train_test_files/RGBN'):
+
     start_time = time.time()
     checkpoint = torch.load(model_checkpoint)
+    mean_iou_tower = []
+    mean_iou_veg = []
 
     with open(os.path.join(path_list_files, 'test_seg_files.txt'), 'r') as f:
         test_files = f.read().splitlines()
-
-    logging.info(f'Dataset folder: {dataset_folder}')
-    # Tensorboard location and plot names
-    # now = datetime.datetime.now()
-    # location = 'pointNet/runs/tower_detec/' + str(n_points) + 'p/'
-    writer_test = None
 
     # Initialize dataset
     test_dataset = LidarDataset(dataset_folder=dataset_folder,
@@ -67,24 +52,19 @@ def test(dataset_folder,
                                                   batch_size=1,
                                                   shuffle=False,
                                                   num_workers=number_of_workers,
-                                                  drop_last=False,
-                                                  collate_fn=collate_segmen_padd)
+                                                  drop_last=False)
 
-    cls_model = RNNClassificationPointNet(num_classes=test_dataset.NUM_SEGMENTATION_CLASSES,
-                                          hidden_size=128,
-                                          point_dimension=test_dataset.POINT_DIMENSION)
-    seg_model = RNNSegmentationPointNet(num_classes=test_dataset.NUM_SEGMENTATION_CLASSES)
+    model = SegmentationPointNet_IGBVI(num_classes=test_dataset.NUM_SEGMENTATION_CLASSES,
+                                       point_dimension=test_dataset.POINT_DIMENSION)
 
-    cls_model.to(device)
-    seg_model.to(device)
-    cls_model.load_state_dict(checkpoint['cls_model'])
-    seg_model.load_state_dict(checkpoint['seg_model'])
+    model.to(device)
+    logging.info('--- Checkpoint loaded ---')
+    model.load_state_dict(checkpoint['model'])
     weighing_method = checkpoint['weighing_method']
     batch_size = checkpoint['batch_size']
     learning_rate = checkpoint['lr']
     number_of_points = checkpoint['number_of_points']
     epochs = checkpoint['epoch']
-    logging.info('--- Checkpoint loaded ---')
 
     logging.info(f"Weighing method: {weighing_method}")
     logging.info(f"Batch size: {batch_size}")
@@ -94,62 +74,40 @@ def test(dataset_folder,
     name = model_checkpoint.split('/')[-1]
     logging.info(f'Model name: {name} ')
 
-    # print model and parameters
-    # INPUT_SHAPE = (7, 2000)
-    # summary(model, INPUT_SHAPE)
-    table = PrettyTable(["Modules", "Parameters"])
-    total_params = 0
-    for name, parameter in cls_model.named_parameters():
-        if not parameter.requires_grad: continue
-        params = parameter.numel()
-        # print(f'{name} {parameter}')
-        table.add_row([name, params])
-        total_params += params
-    # print(table)
-    logging.info(f"Total model params: {total_params}")
+    with open(os.path.join(output_folder, 'results-%s.csv' % name), 'w+') as fid:
+        fid.write('file_name,positive points,IOU_tower\n')
 
-    if not os.path.isdir(output_folder):
-        os.mkdir(output_folder)
+    for data in test_dataloader:
+        points, targets, file_name = data  # [1, 2000, 12], [1, 2000]
+        points = points.view(1, -1, 11)  # [batch, n_samples, dims]
+        targets = targets.view(1, -1)  # [batch, n_samples]
 
-    mean_iou_tower = []
-    mean_iou_veg = []
+        points, targets = points.to(device), targets.to(device)
+        model = model.eval()
 
-    for data in progressbar(test_dataloader):
-        points, targets, filenames, lengths, len_w = data
-        # classifications shapes: [b, n_samples, dims], [b, w_len], [b], [b], [b]
-        # segmentation shapes : [b, n_samples, dims], [b, n_samples], [b], [b], [b]
+        log_prob, feature_transform = model(points)  # [batch, n_points, 2] [2, batch, 128]
 
-        points, targets = points.to(device), targets.to(device)  # ([batch, 18802, 11]
-        len_w = len_w.to(device)
-
-        cls_model = cls_model.eval()
-        hidden = cls_model.initHidden(points, device)
-
-        # split into windows of fixed size
-        # pc_w, targets = sample_point_cloud(points, n_points, False, writer_test, filenames, lengths='', targets=targets,
-        #                                    task='segmentation', device=device)
+        probs = torch.exp(log_prob.cpu().detach())  # [1, points in pc, 2]
+        probs = probs.cpu().numpy().reshape(-1, 2)  # num of points is variable in each point cloud
+        # get max over dim 1
+        preds = np.argmax(probs, axis=1)
         targets = targets.reshape(-1).cpu().numpy()
-
-        _, hidden, feat_transf, local_features = cls_model(points, hidden, get_preds=True)
-        # [b, n_points, 2] [2, b, 128] [b,64,64]
-
-        # get predictions of segmentation model
-        logits = seg_model(hidden, local_features)  # [b, 2048, 2]
-        logits = logits.reshape(-1, logits.shape[2])
-        log_probs = F.log_softmax(logits.detach().cpu(), dim=1)
-        probs = torch.exp(log_probs)
-        preds_pc = log_probs.data.max(1)[1]
 
         all_positive = (np.array(targets) == np.ones(len(targets))).sum()  # TP + FN
         all_neg = (np.array(targets) == np.zeros(len(targets))).sum()  # TN + FP
-        detected_positive = (np.array(preds_pc) == np.ones(len(targets)))  # boolean with positions of 1s
-        detected_negative = (np.array(preds_pc) == np.zeros(len(targets)))  # boolean with positions of 0s
+        detected_positive = (np.array(preds) == np.ones(len(targets)))  # boolean with positions of 1s
+        detected_negative = (np.array(preds) == np.zeros(len(targets)))  # boolean with positions of 1s
 
-        corrects = np.array(np.array(preds_pc) == np.array(targets))
+        corrects = np.array(np.array(preds) == np.array(targets))
         tp = np.logical_and(corrects, detected_positive).sum()
         tn = np.logical_and(corrects, detected_negative).sum()
         fp = np.array(detected_positive).sum() - tp
         fn = np.array(detected_negative).sum() - tn
+
+        # summarize scores
+        file_name = file_name[0].split('/')[-1]
+        print(file_name)
+        print('detected_positive: ', np.array(detected_positive).sum())
 
         iou_veg = tn / (all_neg + fn)
 
@@ -158,9 +116,24 @@ def test(dataset_folder,
             print('IOU tower: ', iou_tower)
             print('IOU veg: ', iou_tower)
             mean_iou_tower.append(iou_tower)
-            print('-------------')
 
         mean_iou_veg.append(iou_veg)
+        print('-------------')
+
+        # mean_ptg_corrects.append(ptg_corrects)
+        with open(os.path.join(output_folder, 'results-%s.csv' % name), 'a') as fid:
+            fid.write('%s,%s,%s\n' % (file_name, all_positive, round(iou_tower, 3)))
+
+        # store segmentation results in pickle file for plotting
+        points = points.reshape(-1, 11)
+        print(points.shape)
+        preds = preds[..., np.newaxis]
+        print(preds.shape)
+
+        points = np.concatenate((points.cpu().numpy(), preds), axis=1)
+        dir_results = 'segmentation_regular'
+        with open(os.path.join(output_folder, dir_results, file_name), 'wb') as f:
+            pickle.dump(points, f)
 
     mean_iou_tower = np.array(mean_iou_tower).sum() / len(mean_iou_tower)
     mean_iou_veg = np.array(mean_iou_veg).sum() / len(mean_iou_veg)
@@ -175,22 +148,22 @@ def test(dataset_folder,
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('dataset_folder', type=str, help='path to the dataset folder')
-    parser.add_argument('--output_folder', type=str, default='pointNet/results', help='output folder')
-    parser.add_argument('--number_of_points', type=int, default=2048, help='number of points per cloud')
+    parser.add_argument('output_folder', type=str, help='output folder')
+    parser.add_argument('--number_of_points', type=int, default=2000, help='number of points per cloud')
     parser.add_argument('--number_of_workers', type=int, default=0, help='number of workers for the dataloader')
     parser.add_argument('--model_checkpoint', type=str, default='', help='model checkpoint path')
-    parser.add_argument('--path_list_files', type=str,
-                        default='pointNet/data/train_test_files/RGBN',
-                        help='output folder')
+
     args = parser.parse_args()
 
     logging.basicConfig(format='%(asctime)s %(levelname)-8s %(message)s',
                         level=logging.DEBUG,
                         datefmt='%Y-%m-%d %H:%M:%S')
+    sys.path.insert(0, '/home/m.caros/work/objectDetection/pointNet')
 
     test(args.dataset_folder,
          args.number_of_points,
          args.output_folder,
          args.number_of_workers,
-         args.model_checkpoint,
-         args.path_list_files)
+         args.model_checkpoint)
+
+# python pointNet/test_segmentation.py /dades/LIDAR/towers_detection/datasets pointNet/results/ --number_of_points 4096 --number_of_workers 0 --model_checkpoint
