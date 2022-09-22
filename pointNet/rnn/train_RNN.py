@@ -5,7 +5,7 @@ import time
 from torch.utils.data import random_split
 from torch.utils.tensorboard import SummaryWriter
 from pointNet.datasets import LidarDataset
-from pointNet.model.pointnetRNN import GRUPointNet, RNNSegmentationPointNet, AttentionClassifier
+from pointNet.model.pointnetRNN import GRUPointNet, SegmentationWithAttention, ClassificationWithAttention
 import logging
 import datetime
 import glob
@@ -13,7 +13,8 @@ from sklearn.metrics import balanced_accuracy_score
 import warnings
 from pointNet.collate_fns import *
 from prettytable import PrettyTable
-# warnings.filterwarnings('ignore')
+
+warnings.filterwarnings('ignore')
 
 if torch.cuda.is_available():
     print(f"cuda available")
@@ -23,8 +24,9 @@ else:
     device = 'cpu'
 
 HIDDEN_SIZE = 256
-ATT_HEADS = 1
-ATT_EMBEDDING = HIDDEN_SIZE * 2 * ATT_HEADS
+GLOBAL_FEAT_SIZE = HIDDEN_SIZE
+ATT_HEADS = 2
+ATT_EMBEDDING = HIDDEN_SIZE * 2
 
 
 def train_gru(task: str,
@@ -42,7 +44,6 @@ def train_gru(task: str,
               model_checkpoint: str = None,
               c_sample: bool = False,
               use_kmeans: bool = True):
-
     start_time = time.time()
     print(f"Weighing method: {weighing_method}")
 
@@ -64,7 +65,7 @@ def train_gru(task: str,
         val_files = f.read().splitlines()
     print(f'Dataset folder: {dataset_folder}')
 
-    NAME = 'GRU256w5_mask'
+    NAME = 'GRUw5a' + str(ATT_HEADS) + 'h' + str(HIDDEN_SIZE)
 
     # Datasets train / val / test
     if task == 'classification':
@@ -72,15 +73,10 @@ def train_gru(task: str,
         writer_val = SummaryWriter(location + now.strftime("%m-%d-%H:%M") + 'cls_val' + NAME)
         print(f"Tensorboard runs: {writer_train.get_logdir()}")
 
-        # padding patch function
-        collate_fn_padd = collate_classif_padd
-
     elif task == 'segmentation':
         writer_train = SummaryWriter(location + now.strftime("%m-%d-%H:%M") + 'seg_train' + NAME)
         writer_val = SummaryWriter(location + now.strftime("%m-%d-%H:%M") + 'seg_val' + NAME)
         print(f"Tensorboard runs: {writer_train.get_logdir()}")
-
-        collate_fn_padd = collate_segmen_padd
 
     # Initialize datasets
     train_dataset = LidarDataset(dataset_folder=dataset_folder,
@@ -118,28 +114,26 @@ def train_gru(task: str,
                                                    shuffle=True,
                                                    num_workers=number_of_workers,
                                                    drop_last=True,
-                                                   collate_fn=collate_fn_padd)
+                                                   collate_fn=collate_seq_padd)
     val_dataloader = torch.utils.data.DataLoader(val_dataset,
                                                  batch_size=batch_size,
                                                  shuffle=True,
                                                  num_workers=number_of_workers,
                                                  drop_last=True,
-                                                 collate_fn=collate_fn_padd)
+                                                 collate_fn=collate_seq_padd)
     # Models initialization
     rnn_pointnet = GRUPointNet(hidden_size=HIDDEN_SIZE,
                                point_dimension=train_dataset.POINT_DIMENSION,
-                               global_feat_size=256,
+                               global_feat_size=GLOBAL_FEAT_SIZE,
                                num_att_heads=ATT_HEADS)
-    attn_classifier = AttentionClassifier(ATT_EMBEDDING, ATT_HEADS)
+    if task == 'classification':
+        attn_model = ClassificationWithAttention(ATT_EMBEDDING, ATT_HEADS)
+    elif task == 'segmentation':
+        attn_model = SegmentationWithAttention(ATT_EMBEDDING, ATT_HEADS)
+
     # Models to device
     rnn_pointnet.to(device)
-    attn_classifier.to(device)
-    seg_model = None
-
-    if task == 'segmentation':
-        # segmentation model with GRU
-        seg_model = RNNSegmentationPointNet(num_classes=train_dataset.NUM_SEGMENTATION_CLASSES)
-        seg_model.to(device)
+    attn_model.to(device)
 
     best_vloss = 1_000_000.
     epochs_since_improvement = 0
@@ -147,7 +141,7 @@ def train_gru(task: str,
 
     if task == 'classification':
         c_weights = get_weights4class(weighing_method,
-                                      n_classes=2,
+                                      n_classes=train_dataset.NUM_CLASSIFICATION_CLASSES,
                                       samples_per_cls=[train_dataset.len_landscape + val_dataset.len_landscape,
                                                        train_dataset.len_towers + val_dataset.len_towers],
                                       beta=beta).to(device)
@@ -155,14 +149,15 @@ def train_gru(task: str,
     # weighted loss
     ce_loss = torch.nn.CrossEntropyLoss(weight=c_weights, reduction='mean')
     # optimizer
-    optimizer = optim.Adam(rnn_pointnet.parameters(), lr=learning_rate)
+    optimizer_rnn = optim.Adam(rnn_pointnet.parameters(), lr=learning_rate)
+    optimizer_att = optim.Adam(attn_model.parameters(), lr=learning_rate)
 
-    if model_checkpoint:
-        print('Loading checkpoint')
-        checkpoint = torch.load(model_checkpoint)
-        rnn_pointnet.load_state_dict(checkpoint['model'])  # cls_model
-        # optimizer.load_state_dict(checkpoint['optimizer'])
-        # adjust_learning_rate(optimizer, learning_rate)
+    # if model_checkpoint:
+    #     print('Loading checkpoint')
+    #     checkpoint = torch.load(model_checkpoint)
+    #     optimizer_rnn.load_state_dict(checkpoint['model'])  # cls_model
+    #     # optimizer.load_state_dict(checkpoint['optimizer'])
+    #     # adjust_learning_rate(optimizer, learning_rate)
 
     # print cls_model and parameters
     # INPUT_SHAPE = (7, 2000)
@@ -174,6 +169,10 @@ def train_gru(task: str,
         # parameter.requires_grad = False # Freeze all layers
         params = parameter.numel()
         # print(f'{name} {parameter}')
+        table.add_row([name, params])
+        total_params += params
+    for name, parameter in attn_model.named_parameters():
+        params = parameter.numel()
         table.add_row([name, params])
         total_params += params
     # print(table)
@@ -195,19 +194,17 @@ def train_gru(task: str,
         ious_tower_val = []
 
         if epochs_since_improvement == 10:
-            adjust_learning_rate(optimizer, 0.5)
+            adjust_learning_rate(optimizer_rnn, 0.5)
+            adjust_learning_rate(optimizer_att, 0.5)
         # elif epoch == 5:
-        #     adjust_learning_rate(optimizer, 0.5)
-        # elif epoch == 15:
         #     adjust_learning_rate(optimizer, 0.5)
 
         # --------------------------------------------- train loop ---------------------------------------------
         for data in train_dataloader:
-            metrics, targets, pc_preds, c_weights = train_loop(data, optimizer, ce_loss,
-                                                               rnn_pointnet, seg_model, attn_classifier,
-                                                               n_points, n_windows, writer_train, task, True,
-                                                               weighing_method, beta, c_weights,
-                                                               kmeans=use_kmeans)
+            metrics, targets, pc_preds, c_weights = train_loop(data, optimizer_rnn, optimizer_att, ce_loss,
+                                                               rnn_pointnet, attn_model,
+                                                               n_points, writer_train, task, True,
+                                                               weighing_method, beta, c_weights)
 
             # tensorboard
             ce_train_loss.append(metrics['ce_loss'].cpu().item())
@@ -220,28 +217,27 @@ def train_gru(task: str,
 
         with torch.no_grad():
             for data in val_dataloader:
-                metrics, targets, pc_preds, c_weights = train_loop(data, optimizer, ce_loss,
-                                                                   rnn_pointnet, seg_model, attn_classifier,
-                                                                   n_points, n_windows, writer_val, task, False,
-                                                                   weighing_method, beta, c_weights,
-                                                                   kmeans=use_kmeans)
+                metrics, targets, pc_preds, c_weights = train_loop(data, optimizer_rnn, optimizer_att, ce_loss,
+                                                                   rnn_pointnet, attn_model,
+                                                                   n_points, writer_val, task, False,
+                                                                   weighing_method, beta, c_weights)
                 ious_tower_val.append(metrics['iou_tower'])
 
-            # tensorboard
-            epoch_val_loss.append(metrics['ce_loss'].cpu().item())  # in val ce_loss and total_loss are the same
-            targets = targets.view(-1).cpu().numpy()
+                # tensorboard
+                epoch_val_loss.append(metrics['ce_loss'].cpu().item())  # in val ce_loss and total_loss are the same
+                targets = targets.view(-1).cpu().numpy()
 
-            if task == 'segmentation':  # todo check this
-                mask = targets != [-1] * len(targets)
-                targets = targets[mask]
-                pc_preds = pc_preds[mask]
+                # if task == 'segmentation':  # todo check this
+                #     mask = targets != [-1] * len(targets)
+                #     targets = targets[mask]
+                #     pc_preds = pc_preds[mask]
 
-            targets_pos.append((targets == np.ones(len(targets))).sum() / len(targets))
-            targets_neg.append((targets == np.zeros(len(targets))).sum() / len(targets))
-            detected_negative.append((np.array(pc_preds) == np.zeros(len(pc_preds))).sum() / len(targets))
-            detected_positive.append((np.array(pc_preds) == np.ones((len(pc_preds)))).sum() / len(targets))
-            epoch_val_acc.append(metrics['accuracy'])
-            epoch_val_acc_w.append(metrics['accuracy_w'])
+                targets_pos.append((targets == np.ones(len(targets))).sum() / len(targets))
+                targets_neg.append((targets == np.zeros(len(targets))).sum() / len(targets))
+                detected_negative.append((np.array(pc_preds) == np.zeros(len(pc_preds))).sum() / len(targets))
+                detected_positive.append((np.array(pc_preds) == np.ones((len(pc_preds)))).sum() / len(targets))
+                epoch_val_acc.append(metrics['accuracy'])
+                epoch_val_acc_w.append(metrics['accuracy_w'])
 
         # ------------------------------------------------------------------------------------------------------
         # Tensorboard
@@ -258,7 +254,7 @@ def train_gru(task: str,
         writer_train.add_scalar('accuracy_weighted', np.mean(epoch_train_acc_w), epoch)
         writer_val.add_scalar('accuracy_weighted', np.mean(epoch_val_acc_w), epoch)
         writer_val.add_scalar('epochs_since_improvement', epochs_since_improvement, epoch)
-        writer_train.add_scalar('learning_rate', optimizer.param_groups[0]['lr'], epoch)
+        writer_train.add_scalar('learning_rate', optimizer_rnn.param_groups[0]['lr'], epoch)
         writer_train.add_scalar('c_weights', c_weights[1].cpu(), epoch)
         writer_val.add_scalar('c_weights', c_weights[0].cpu(), epoch)
         if task == 'segmentation':
@@ -274,7 +270,8 @@ def train_gru(task: str,
                 name = now.strftime("%m-%d-%H:%M") + '_clsGRU' + NAME
             elif task == 'segmentation':
                 name = now.strftime("%m-%d-%H:%M") + '_segGRU' + NAME
-            save_checkpoint_rnn(name, task, epoch, epochs_since_improvement, rnn_pointnet, seg_model, optimizer,
+            save_checkpoint_rnn(name, task, epoch, epochs_since_improvement, rnn_pointnet, attn_model, optimizer_rnn,
+                                optimizer_att,
                                 metrics['accuracy'],
                                 batch_size, learning_rate, n_points, weighing_method)
             epochs_since_improvement = 0
@@ -290,24 +287,22 @@ def train_gru(task: str,
     print("--- TOTAL TIME: %s h ---" % (round((time.time() - start_time) / 3600, 3)))
 
 
-def train_loop(data, optimizer, ce_loss, rnn_pointnet, seg_model, attn_classifier, n_points=2048, n_windows=5,
-               w_tensorboard=None, task='classification', train=True, weighing_method='EFS', beta=0.999, c_weights=[],
-               kmeans=True):
+def train_loop(data, optimizer_rnn, optimizer_att, ce_loss, rnn_pointnet, attn_model, n_points=2048,
+               w_tensorboard=None, task='classification', train=True, weighing_method='EFS', beta=0.999,
+               c_weights=[]):
     """
-    :param attn_classifier:
     :param data: tuple with (points, targets, filenames, lengths, len_w)
-    :param optimizer: optimizer
+    :param optimizer_rnn:
+    :param optimizer_att:
     :param ce_loss: CrossEntropy loss
+    :param attn_model:
     :param rnn_pointnet: classification model
-    :param seg_model: segmentation model
     :param n_points: number of points per window
-    :param n_windows: number of windows
     :param w_tensorboard: tensorboard writer
     :param task: 'classification' or 'segmentation'
     :param train: set to True to perform backward propagation
     :param beta:
     :param weighing_method:
-    :param kmeans:
     :param c_weights:
 
     :return:
@@ -316,24 +311,24 @@ def train_loop(data, optimizer, ce_loss, rnn_pointnet, seg_model, attn_classifie
 
     metrics = {'loss': [], 'reg_loss': [], 'ce_loss': [], 'accuracy': [], 'iou_tower': None}
     # iou_tower used only in segmentation
+
     pc_w, targets, filenames = data
     # classifications shapes: [b, n_samples, dims, w_len], [b, w_len], [b]
     # segmentation shapes : [b, n_samples, dims, w_len], [b, n_samples], [b]
     batch_size = pc_w.shape[0]
 
     # Pytorch accumulates gradients. We need to clear them out before each instance
-    optimizer.zero_grad()
+    optimizer_rnn.zero_grad()
+    optimizer_att.zero_grad()
     # init hidden
     hidden = rnn_pointnet.initHidden(pc_w.to(device), device)
 
     if train:
         rnn_pointnet = rnn_pointnet.train()
-        if task == 'segmentation':
-            seg_model = seg_model.train()
+        attn_model = attn_model.train()
     else:
         rnn_pointnet = rnn_pointnet.eval()
-        if task == 'segmentation':
-            seg_model = seg_model.eval()
+        attn_model = attn_model.eval()
 
     pc_w, targets = pc_w.to(device), targets.to(device)  # [b, 2048, dims, w_len], [b, w_len]
 
@@ -351,38 +346,28 @@ def train_loop(data, optimizer, ce_loss, rnn_pointnet, seg_model, attn_classifie
                                       samples_per_cls=[points_landscape, points_tower],
                                       beta=beta).to(device)
         # define loss with weights
-        ce_loss = torch.nn.CrossEntropyLoss(weight=c_weights, ignore_index=-1, reduce=None, reduction='mean')
+        ce_loss = torch.nn.CrossEntropyLoss(weight=c_weights, reduction='mean')
 
     # RNN forward pass
     all_hiddens = []
     for w in range(pc_w.shape[3]):
         in_points = pc_w[:, :, :, w]  # get window
         out_h, feat_transf, local_features = rnn_pointnet(in_points, hidden)
-        # [batch, 1, 512] [b,64,64] [b,n_p,64]
+        # [batch, 512] [b,64,64] [b,n_p,64]
         all_hiddens.append(out_h)
-
-        if task == 'segmentation':
-            logits = seg_model(hidden, local_features)  # [b, 2048, 2]
-            logits = logits.reshape(-1, logits.shape[2])
-            targets_w = targets[:, w * n_points: (w + 1) * n_points]
-
-            # ce_loss_batch = ce_loss(logits, targets_w.reshape(-1))
-            # ce_loss_batch = ce_loss_batch.view(batch_size, n_points)
-            # ce_loss_batch = ce_loss_batch.sum(1) / (len_w * n_points)  # [b] get mean
-            # ce_loss_batch = ce_loss_batch.view(-1, 1)
 
     all_hiddens = torch.stack(all_hiddens, dim=1).to(device)  # [b, w_len, 512]
     all_hiddens = all_hiddens.view(targets.shape[1], batch_size, -1)  # [w_len, b, 512]
 
     # mask for attention: True value indicates that the corresponding position is not allowed
-    mask = torch.where(targets != -1, torch.zeros_like(targets, dtype=torch.bool),
-                       torch.ones_like(targets, dtype=torch.bool))
+    # mask = torch.where(targets != -1, torch.zeros_like(targets, dtype=torch.bool),
+    #                    torch.ones_like(targets, dtype=torch.bool))
     # mask size [b, w_len]
-    mask = mask.repeat(ATT_HEADS, 1).unsqueeze(dim=2)  # [b*n_heads, 5, 1]
-    mask = mask.repeat(1, 1, n_windows).to(device)  # [b*n_heads, 5, 5] (N⋅num_heads,L,S)
+    # mask = mask.repeat(ATT_HEADS, 1).unsqueeze(dim=2)  # [b*n_heads, 5, 1]
+    # mask = mask.repeat(1, 1, n_windows).to(device)  # [b*n_heads, 5, 5] (N⋅num_heads,L,S)
     # mask = mask.expand(-1, targets.shape[1], targets.shape[1]).to(device)  # [8, w_len, w_len]  (N⋅num_heads,L,S)
     # todo check mask
-    logits, att_weights = attn_classifier(all_hiddens, attn_mask=mask)
+    logits, att_weights = attn_model(all_hiddens, attn_mask=None)
     # CrossEntropy loss
     metrics['ce_loss'] = ce_loss(logits, targets[:, 0]).view(-1, 1)  # [1, 1]
     targets_pc = targets[:, 0].detach().cpu()
@@ -416,15 +401,11 @@ def train_loop(data, optimizer, ce_loss, rnn_pointnet, seg_model, attn_classifie
         iou_tower = tp / (all_positive + fp)
         accuracy = (corrects.sum() / (batch_size * pc_w.shape[3] * n_points))
 
-        identity = torch.eye(feat_transf.shape[-1]).to(device)  # [64, 64]
-        regularization_loss = torch.norm(identity - torch.bmm(feat_transf, feat_transf.transpose(2, 1)))
-
-        ce_loss_mean = ce_loss_all.sum() / batch_size
-
     if train:
         metrics['loss'] = metrics['ce_loss'] + 0.001 * metrics['reg_loss']
         metrics['loss'].backward()
-        optimizer.step()
+        optimizer_rnn.step()
+        optimizer_att.step()
     #  validation
     else:
         metrics['loss'] = metrics['ce_loss']

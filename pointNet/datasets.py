@@ -112,12 +112,16 @@ class LidarDataset(data.Dataset):
     def get_labels(pointcloud,
                    point_cloud_class=None,
                    task='classification'):
-
+        """
+        :param pointcloud: [n_points, dim, seq_len]
+        :param point_cloud_class: 0 or 1
+        :param task: classification or segmentation
+        """
         if task == 'segmentation':
-            segment_labels = pointcloud[:, 3].astype(np.int)  # [2048,1]
+            segment_labels = pointcloud[:, 3, :].long()  # [2048, 5]
             segment_labels[segment_labels != 15] = 0
             segment_labels[segment_labels == 15] = 1
-            labels = segment_labels
+            labels = segment_labels  # [2048, 5]
 
         elif task == 'classification':
             labels = [point_cloud_class]

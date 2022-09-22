@@ -50,8 +50,9 @@ class TransformationNet(nn.Module):
 
 class BasePointNet(nn.Module):
 
-    def __init__(self, point_dimension, return_local_features=False, dataset=''):
+    def __init__(self, point_dimension, return_local_features=False, dataset='', global_feat_dim=256):
         super(BasePointNet, self).__init__()
+        self.global_feat_dim = global_feat_dim
         self.dataset = dataset
         self.return_local_features = return_local_features
         self.input_transform = TransformationNet(input_dim=point_dimension, output_dim=point_dimension)
@@ -61,13 +62,13 @@ class BasePointNet(nn.Module):
         self.conv_2 = nn.Conv1d(64, 64, 1, bias=False)
         self.conv_3 = nn.Conv1d(64, 64, 1, bias=False)
         self.conv_4 = nn.Conv1d(64, 128, 1, bias=False)
-        self.conv_5 = nn.Conv1d(128, 256, 1, bias=False)
+        self.conv_5 = nn.Conv1d(128, self.global_feat_dim, 1, bias=False)
 
         self.bn_1 = nn.BatchNorm1d(64)
         self.bn_2 = nn.BatchNorm1d(64)
         self.bn_3 = nn.BatchNorm1d(64)
         self.bn_4 = nn.BatchNorm1d(128)
-        self.bn_5 = nn.BatchNorm1d(256)
+        self.bn_5 = nn.BatchNorm1d(self.global_feat_dim)
 
     def forward(self, x):
         num_points = x.shape[1]  # torch.Size([BATCH, SAMPLES, DIMS])
@@ -94,42 +95,13 @@ class BasePointNet(nn.Module):
         x = F.relu(self.bn_4(self.conv_4(x)))
         x = F.relu(self.bn_5(self.conv_5(x)))
         x = nn.MaxPool1d(num_points)(x)
-        global_feature = x.view(-1, 256)  # [ batch, 1024, 1]
+        global_feature = x.view(-1, self.global_feat_dim)  # [ batch, 1024, 1]
 
         if self.return_local_features:
-            global_feature = global_feature.view(-1, 256, 1).repeat(1, 1, num_points)
+            global_feature = global_feature.view(-1, self.global_feat_dim, 1).repeat(1, 1, num_points)
             return torch.cat([global_feature.transpose(2, 1), local_point_features], 2), feature_transform
         else:
             return global_feature, feature_transform
-
-
-class ClassificationPointNet(nn.Module):
-
-    def __init__(self, num_classes, dropout=0.3, point_dimension=3, dataset=''):
-        super(ClassificationPointNet, self).__init__()
-        self.dataset = dataset
-
-        self.base_pointnet = BasePointNet(return_local_features=False, point_dimension=point_dimension)
-
-        self.fc_1 = nn.Linear(256, 128)
-        self.fc_2 = nn.Linear(128, 64)
-        self.fc_3 = nn.Linear(64, num_classes)
-
-        self.bn_1 = nn.BatchNorm1d(128)
-        self.bn_2 = nn.BatchNorm1d(64)
-
-        self.dropout_1 = nn.Dropout(dropout)
-
-    def forward(self, x):
-        global_feature, feature_transform = self.base_pointnet(x)
-
-        x = F.relu(self.bn_1(self.fc_1(global_feature)))
-        x = F.relu(self.bn_2(self.fc_2(x)))
-        x = self.dropout_1(x)
-        x = self.fc_3(x)
-        out = F.log_softmax(x, dim=1)
-
-        return out, feature_transform
 
 
 class GRUPointNet(nn.Module):
@@ -140,7 +112,8 @@ class GRUPointNet(nn.Module):
         self.global_feat_size = global_feat_size
         self.att_heads = num_att_heads
 
-        self.base_pointnet = BasePointNet(return_local_features=True, point_dimension=point_dimension, )
+        self.base_pointnet = BasePointNet(return_local_features=True, point_dimension=point_dimension,
+                                          global_feat_dim=global_feat_size)
         self.gru_global = nn.GRU(self.global_feat_size, hidden_size, batch_first=True, bidirectional=True)
 
     def forward(self, x, hidden):
@@ -151,7 +124,7 @@ class GRUPointNet(nn.Module):
         global_feature = global_feature.view(-1, 1, self.global_feat_size)
         out_h, hidden = self.gru_global(global_feature, hidden)  # [batch, 1, 512] [2, b, 256]
         out_h = out_h.view(-1, self.hidden_size * self.att_heads)  # [batch, 512]
-        # global_feat_rnn = self.fc_hidden(global_feat_rnn)  # [batch, 1, 256]
+        # out_h = self.fc_hidden(out_h)  # if we want to change out_h size we add another layer
 
         return out_h, feature_transform, local_features
 
@@ -161,29 +134,22 @@ class GRUPointNet(nn.Module):
         return torch.zeros(2, x.shape[0], self.hidden_size, device=device)  # [layers, x.size[0], hidden]
 
 
-class AttentionClassifier(nn.Module):
+class ClassificationWithAttention(nn.Module):
     def __init__(self, embed_dim, num_heads, num_classes=2, dropout=0.3, num_w=5):
-        super(AttentionClassifier, self).__init__()
+        super(ClassificationWithAttention, self).__init__()
         self.embed_dim = embed_dim  # todo test 2046, 3072
-
-        # self.conv_0 = nn.Conv1d(num_w, 1, 1, bias=True)
 
         self.attention = nn.MultiheadAttention(embed_dim,
                                                num_heads=num_heads,  # todo test 10
                                                dropout=dropout)
 
         self.conv_1 = nn.Conv1d(num_w, 1, 1, bias=True)
-        self.fc_2 = nn.Linear(512, 128)
+        self.fc_2 = nn.Linear(embed_dim, 128)
         self.fc_3 = nn.Linear(128, num_classes)
-
-        self.bn_0 = nn.BatchNorm1d(2048)
         self.bn_2 = nn.BatchNorm1d(128)
-
         self.dropout_1 = nn.Dropout(dropout)
 
     def forward(self, x, attn_mask=None):
-
-        # x = F.relu(self.bn_0(self.conv_0(x)))
 
         attn_output, attn_output_weights = self.attention(x, x, x,
                                                           key_padding_mask=None,
@@ -193,7 +159,39 @@ class AttentionClassifier(nn.Module):
         attn_output = attn_output.view(-1, attn_output.shape[0], self.embed_dim)  # [b, w_len, 512]
 
         x = F.relu(self.conv_1(attn_output))  # [b, 1, 512]
-        x = x.view(-1, 512)
+        x = x.view(-1, self.embed_dim)
+        x = F.relu(self.bn_2(self.fc_2(x)))
+        out = self.fc_3(x)
+
+        return out, attn_output_weights
+
+
+class SegmentationWithAttention(nn.Module):
+    def __init__(self, embed_dim, num_heads, num_classes=2, dropout=0.3, num_w=5):
+        super(SegmentationWithAttention, self).__init__()
+        self.embed_dim = embed_dim  # todo test 2046, 3072
+
+        self.attention = nn.MultiheadAttention(embed_dim,
+                                               num_heads=num_heads,  # todo test 10
+                                               dropout=dropout)
+
+        self.conv_1 = nn.Conv1d(num_w, 1, 1, bias=True)
+        self.fc_2 = nn.Linear(embed_dim, 128)
+        self.fc_3 = nn.Linear(128, num_classes)
+        self.bn_2 = nn.BatchNorm1d(128)
+        self.dropout_1 = nn.Dropout(dropout)
+
+    def forward(self, x, attn_mask=None):
+
+        attn_output, attn_output_weights = self.attention(x, x, x,
+                                                          key_padding_mask=None,
+                                                          need_weights=True,
+                                                          attn_mask=attn_mask)
+        # [w_len, b, 512] [b, w_len, w_len]
+        attn_output = attn_output.view(-1, attn_output.shape[0], self.embed_dim)  # [b, w_len, 512]
+
+        x = F.relu(self.conv_1(attn_output))  # [b, 1, 512]
+        x = x.view(-1, self.embed_dim)
         x = F.relu(self.bn_2(self.fc_2(x)))
         out = self.fc_3(x)
 

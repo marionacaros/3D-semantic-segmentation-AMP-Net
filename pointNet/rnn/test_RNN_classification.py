@@ -70,7 +70,7 @@ def test(dataset_folder,
                                                   shuffle=False,
                                                   num_workers=number_of_workers,
                                                   drop_last=False,
-                                                  collate_fn=collate_classif_padd)
+                                                  collate_fn=collate_seq_padd)
 
     model = GRUPointNet(num_classes=test_dataset.NUM_SEGMENTATION_CLASSES,
                         hidden_size=128,

@@ -588,17 +588,15 @@ def split4cls_rdm(points, n_points=2048, targets=[], device='cuda', duplicate=Tr
     return pc_w, targets_w
 
 
-def save_checkpoint_rnn(name, task, epoch, epochs_since_improvement, cls_model, seg_model, optimizer, accuracy,
-                        batch_size, learning_rate, number_of_points, weighing_method):
-    if task == 'segmentation':
-        seg_model_state = seg_model.state_dict()
-    else:
-        seg_model_state = None
+def save_checkpoint_rnn(name, task, epoch, epochs_since_improvement, rnn_model, attn_model, optimizer_rnn, optimizer_att,
+                        accuracy, batch_size, learning_rate, number_of_points, weighing_method):
 
     state = {
-        'cls_model': cls_model.state_dict(),
-        'seg_model': seg_model_state,
-        'optimizer': optimizer.state_dict(),
+        'rnn_model': rnn_model.state_dict(),
+        'attn_model': attn_model.state_dict(),
+        'optimizer_rnn': optimizer_rnn.state_dict(),
+        'optimizer_att': optimizer_att.state_dict(),
+        'task': task,
         'batch_size': batch_size,
         'lr': learning_rate,
         'number_of_points': number_of_points,
