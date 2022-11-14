@@ -1,29 +1,29 @@
 #!/bin/bash
 
-for p in /home/m.caros/work/objectDetection/datasets/CAT3/w_towers_40x40_10p/tower_v*.las; do
+#for p in /dades/LIDAR/towers_detection/LAS_data_windows/CAT3/w_towers_40x40_10p/tower_v*.las; do
+#  pdal translate $p $p hag_nn --writers.las.extra_dims="HeightAboveGround=float32"
+#  echo "$p"
+#done
+for p in /dades/LIDAR/towers_detection/LAS_data_windows/RIBERA/w_towers_40x40_10p/tower_v*.las; do
   pdal translate $p $p hag_nn --writers.las.extra_dims="HeightAboveGround=float32"
   echo "$p"
 done
-for p in /home/m.caros/work/objectDetection/datasets/RIBERA/w_towers_40x40_10p/tower_v*.las; do
-  pdal translate $p $p hag_nn --writers.las.extra_dims="HeightAboveGround=float32"
-  echo "$p"
-done
-for p in /home/m.caros/work/objectDetection/datasets/BDN/w_towers_40x40_10p/tower_v*.las; do
-  pdal translate $p $p hag_nn --writers.las.extra_dims="HeightAboveGround=float32"
-  echo "$p"
-done
+#for p in /dades/LIDAR/towers_detection/LAS_data_windows/BDN/w_towers_40x40_10p/tower_v*.las; do
+#  pdal translate $p $p hag_nn --writers.las.extra_dims="HeightAboveGround=float32"
+#  echo "$p"
+#done
 
-for p in /home/m.caros/work/objectDetection/datasets/CAT3/w_othertowers_100x100_50p/othertower_*.las; do
-  pdal translate $p $p hag_nn --writers.las.extra_dims="HeightAboveGround=float32"
-  echo "$p"
-done
-for p in /home/m.caros/work/objectDetection/datasets/RIBERA/w_othertowers_100x100_50p/othertower_*.las; do
-  pdal translate $p $p hag_nn --writers.las.extra_dims="HeightAboveGround=float32"
-  echo "$p"
-done
+#for p in /dades/LIDAR/towers_detection/LAS_data_windows/datasets/CAT3/w_othertowers_100x100_50p/othertower_*.las; do
+#  pdal translate $p $p hag_nn --writers.las.extra_dims="HeightAboveGround=float32"
+#  echo "$p"
+#done
+#for p in /dades/LIDAR/towers_detection/LAS_data_windows/datasets/RIBERA/w_othertowers_100x100_50p/othertower_*.las; do
+#  pdal translate $p $p hag_nn --writers.las.extra_dims="HeightAboveGround=float32"
+#  echo "$p"
+#done
 
 # Rename files
-#for f in /home/m.caros/work/objectDetection/datasets/CAT3/w_no_towers_40x40/*pkl.las; do
+#for f in /dades/LIDAR/towers_detection/LAS_data_windows/datasets/CAT3/w_no_towers_40x40/*pkl.las; do
 #  mv -- "$f" "${f%.pkl.las}.las"
 #done
 # save HAG in z

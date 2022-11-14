@@ -16,7 +16,7 @@ logging.basicConfig(format='%(asctime)s %(levelname)-8s %(message)s',
                     datefmt='%Y-%m-%d %H:%M:%S')
 
 
-def split_dataset_windows(DATASET_NAME, LAS_PATH, SEL_CLASS, min_p=10, w_size=[40, 40]):
+def split_dataset_windows(DATASET_NAME, LAS_PATH, SEL_CLASS, min_p=10, w_size=[40, 40], data_augm=3):
     global save_path
     start_time = time.time()
     logging.info(f"Dataset: {DATASET_NAME}")
@@ -63,7 +63,7 @@ def split_dataset_windows(DATASET_NAME, LAS_PATH, SEL_CLASS, min_p=10, w_size=[4
     # ------------------------------------------------ 3 ---------------------------------------------------------
     # Loop over LAS files point clouds to get towers with context and store as LAS file
     logging.info('----------------- 3 -----------------')
-    get_context(dic_center_towers, w_size=W_SIZE, path=LAS_PATH, dataset=DATASET_NAME, min_p=min_p, data_augm=7,
+    get_context(dic_center_towers, w_size=W_SIZE, path=LAS_PATH, dataset=DATASET_NAME, min_p=min_p, data_augm=data_augm,
                 name='tower')
 
     # -------------------------------------------------- 4 -------------------------------------------------------
@@ -414,13 +414,14 @@ def split_pointCloud(point_cloud, f_name='', dir='w_no_towers_40x40', path='', w
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--output_folder', type=str, default='/dades/LIDAR/towers_detection/LAS_data_windows',
+    parser.add_argument('--out_path', type=str, default='/dades/LIDAR/towers_detection/LAS_data_windows',
                         help='output folder where processed files are stored')
     parser.add_argument('--min_p', type=int, default=10, help='minimum number of points in object')
     parser.add_argument('--sel_class', type=int, default=15, help='selected class')
-    parser.add_argument('--dataset_name', type=str, default='CAT3', help='name of dataset')
+    parser.add_argument('--datasets', type=list, default=['CAT3', 'RIBERA', 'BDN'], help='list of datasets names')
     parser.add_argument('--LAS_files_path', type=str)
     parser.add_argument('--w_size', default=[40, 40])
+    parser.add_argument('--data_augm', default=5)
 
     args = parser.parse_args()
 
@@ -431,8 +432,7 @@ if __name__ == '__main__':
     LAS_files_path = args.LAS_files_path
 
     # Our Datasets
-    DATASETS = ['BDN', 'RIBERA']  # ['CAT3']
-    for DATASET_NAME in DATASETS:
+    for DATASET_NAME in args.datasets:
         # paths
         if DATASET_NAME == 'BDN':
             LAS_files_path = '/mnt/Lidar_K/PROJECTES/0025310000_VOLTA_MachineLearning_Badalona_FBK_5anys/Lliurament_211203_Mariona/LASCLAS_AMB_FOREST-URBAN/FOREST'
@@ -441,7 +441,7 @@ if __name__ == '__main__':
         elif DATASET_NAME == 'RIBERA':
             LAS_files_path = '/mnt/Lidar_O/DeepLIDAR/VolVegetacioRibera_ClassTorres-Linies/LAS'
 
-        save_path = os.path.join(args.output_folder, DATASET_NAME)
+        save_path = os.path.join(args.out_path, DATASET_NAME)
 
-        split_dataset_windows(DATASET_NAME, LAS_files_path, SEL_CLASS, args.min_p, args.w_size)
+        split_dataset_windows(DATASET_NAME, LAS_files_path, SEL_CLASS, args.min_p, args.w_size, args.data_augm)
 

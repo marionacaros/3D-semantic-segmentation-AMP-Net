@@ -1,3 +1,4 @@
+import argparse
 import hashlib
 import logging
 import random
@@ -50,6 +51,7 @@ def remove_ground_and_outliers(files_path, out_path, max_z=100.0, max_intensity=
         fileName = file.split('/')[-1].split('.')[0]
         data_f = laspy.read(file)
 
+        # Remove all categories of ground points
         data_f.points = data_f.points[np.where(data_f.classification != 8)]
         data_f.points = data_f.points[np.where(data_f.classification != 13)]
         data_f.points = data_f.points[np.where(data_f.classification != 24)]
@@ -164,13 +166,13 @@ def constrained_sampling(pc, n_points, TH_1=3.0, TH_2=8.0, counters={}):
     Gradual sampling considering thresholds TH_1 and TH_2. It drops lower points and keeps higher points.
     The goal is to remove noise caused by vegetation.
 
-    :param pc:
-    :param n_points:
-    :param TH_1:
-    :param TH_2:
-    :param counters:
+    :param pc: data to apply constrained sampling
+    :param n_points: minimum amount of point per PC
+    :param TH_1: first height threshold to sample
+    :param TH_2: second height threshold to sample
+    :param counters: dictionary with counters for info purposes
 
-    :return:
+    :return:pc_sampled, counters
     """
 
     # add column of zeros
@@ -238,29 +240,32 @@ def constrained_sampling(pc, n_points, TH_1=3.0, TH_2=8.0, counters={}):
 
 if __name__ == '__main__':
 
-    N_POINTS = 4096
-    MAX_Z = 100.0
-    # todo change output path
-    # out_path = '/dades/LIDAR/towers_detection/datasets/pc_towers_40x40_10p'
-    out_path = '/dades/LIDAR/towers_detection/datasets/pc_othertowers_100x100_50p'
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--out_path', type=str, default='/dades/LIDAR/towers_detection/datasets/pc_towers_40x40_10p',
+                        help='output folder where processed files are stored')
+    parser.add_argument('--in_path', default='/dades/LIDAR/towers_detection/LAS_data_windows/')
+    parser.add_argument('--datasets', type=list, default=['RIBERA'], help='list of datasets names')
+    parser.add_argument('--n_points', type=int, default=2048)
+    parser.add_argument('--max_z', type=float, default=100.0)
+
+    args = parser.parse_args()
     start_time = time.time()
 
-    for DATASET in ['CAT3', 'RIBERA']:
-        paths = ['datasets/' + DATASET + '/w_othertowers_100x100_50p']
-        # paths = ['datasets/' + DATASET + '/w_towers_40x40_10p',
-        #          'datasets/' + DATASET + '/w_no_towers_40x40']
+    for DATASET in args.datasets:
+        paths = [args.in_path + DATASET + '/w_towers_40x40_10p']
+                 #args.in_path + DATASET + '/w_no_towers_40x40']
 
         for input_path in paths:
             logging.info(f'Input path: {input_path}')
 
             # IMPORTANT !!!!!!!!!
-            # execute pdal_hag.sh  # to get HeighAboveGround
+            # First execute pdal_hag.sh  # to get HeightAboveGround
 
             # ------ Remove ground, noise and outliers and normalize ------
-            logging.info(f"1. Remove points of ground (up to {N_POINTS}), noise and outliers, normalize"
+            logging.info(f"1. Remove points of ground (up to {args.n_points}), noise and outliers, normalize"
                          f"and add constrained sampling flag ")
-            remove_ground_and_outliers(input_path, out_path, max_z=MAX_Z, max_intensity=5000,
-                                       n_points=N_POINTS, dataset=DATASET)
+            remove_ground_and_outliers(input_path, args.out_path, max_z=args.max_z, max_intensity=5000,
+                                       n_points=args.n_points, dataset=DATASET)
             print("--- Remove ground and noise time: %s h ---" % (round((time.time() - start_time) / 3600, 3)))
             rm_ground_time = time.time()
 
