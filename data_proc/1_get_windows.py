@@ -16,7 +16,7 @@ logging.basicConfig(format='%(asctime)s %(levelname)-8s %(message)s',
                     datefmt='%Y-%m-%d %H:%M:%S')
 
 
-def split_dataset_windows(DATASET_NAME, LAS_PATH, SEL_CLASS, min_p=10, w_size=[100, 100]):
+def split_dataset_windows(DATASET_NAME, LAS_PATH, SEL_CLASS, min_p=10, w_size=[40, 40]):
     global save_path
     start_time = time.time()
     logging.info(f"Dataset: {DATASET_NAME}")
@@ -24,8 +24,8 @@ def split_dataset_windows(DATASET_NAME, LAS_PATH, SEL_CLASS, min_p=10, w_size=[1
 
     # # ------------------------------------------------- 1 --------------------------------------------------------
     # Get LAS blocks containing towers and store x,y,z in dict
-    # logging.info('----------------- 1 -----------------')
-    # logging.info(f"Get point clouds of class {SEL_CLASS}")
+    logging.info('----------------- 1 -----------------')
+    logging.info(f"Get point clouds of class {SEL_CLASS}")
     # Get x,y,z of  points labeled as our target object (selClass)
     # block_points_towers = get_pointCloud_selClass(LAS_PATH, selClass=SEL_CLASS)
 
@@ -40,7 +40,7 @@ def split_dataset_windows(DATASET_NAME, LAS_PATH, SEL_CLASS, min_p=10, w_size=[1
 
     # ----------------------------------------------- 2 ----------------------------------------------------------
     # Sliding Window for tower segmentation
-    # logging.info('----------------- 2 -----------------')
+    logging.info('----------------- 2 -----------------')
     # dic_pc_towers, dic_center_towers = object_segmentation(block_points_towers,
     #                                                        min_points=min_p,
     #                                                        windowSize=[40, 40],
@@ -55,17 +55,17 @@ def split_dataset_windows(DATASET_NAME, LAS_PATH, SEL_CLASS, min_p=10, w_size=[1
     # Load dictionaries
     # with open('dicts/dict_segmented_towers_w20p' + str(min_p) + DATASET_NAME + '.pkl', 'rb') as f:
     #     dic_pc_towers = pickle.load(f)
-    # with open('dicts/loc/dict_center_towers_w20p' + str(min_p) + DATASET_NAME + '.json', 'r') as f:
-    #     dic_center_towers = json.load(f)
-    with open('dicts/loc/dict_center_other_towers_w50p' + str(min_p) + DATASET_NAME + '.json', 'r') as f:
+    with open('dicts/loc/dict_center_towers_w20p' + str(min_p) + DATASET_NAME + '.json', 'r') as f:
         dic_center_towers = json.load(f)
+    # with open('dicts/loc/dict_center_other_towers_w50p' + str(min_p) + DATASET_NAME + '.json', 'r') as f:
+    #     dic_center_towers = json.load(f)
 
     # ------------------------------------------------ 3 ---------------------------------------------------------
     # Loop over LAS files point clouds to get towers with context and store as LAS file
-    # logging.info('----------------- 3 -----------------')
-    # get_context(dic_center_towers, w_size=W_SIZE, path=LAS_PATH, dataset=DATASET_NAME, min_p=min_p, data_augm=3,
-    #             name='othertower')
-    #
+    logging.info('----------------- 3 -----------------')
+    get_context(dic_center_towers, w_size=W_SIZE, path=LAS_PATH, dataset=DATASET_NAME, min_p=min_p, data_augm=7,
+                name='tower')
+
     # -------------------------------------------------- 4 -------------------------------------------------------
     # Store all points != selClass as LAS
     logging.info('----------------- 4 -----------------')
@@ -150,19 +150,32 @@ def read_las_files(path):
     return dict_pc
 
 
-def get_context(dic_center_towers, w_size=[40, 40], path='', dataset='', min_p=10, data_augm=0,
-                name='othertower'):
+def get_context(dic_center_obj, w_size=[40, 40], path='', dataset='', min_p=10, data_augm=0,
+                name='tower'):
+    """
+    Get cubes of size w_size by using the center of the towers (stored in dic_center_towers)
+    The minimum amount of points per tower is defined by min_p
+    If data_augm > 0 data augmentation of towers with rotation and translation is generated
+
+    :param dic_center_obj: dictionary with location of target object
+    :param w_size: window size [x,y]
+    :param path: directory of .las files
+    :param dataset: name of dataset
+    :param min_p: minimum amount of points per object to be stored
+    :param data_augm: amount of augmented objects
+    :param name: name of object to be stored
+    """
     logging.info("Getting context of towers")
     logging.info('Loading LAS files')
 
-    dirName = 'w_'+ name + 's' + str(w_size[0]) + 'x' + str(w_size[1])
+    dirName = 'w_' + name + 's_' + str(w_size[0]) + 'x' + str(w_size[1])
     count = 0
     files = glob.glob(os.path.join(path, '*.las'))
     with alive_bar(len(files), bar='bubbles', spinner='notes2') as bar:
         for f in files:
             fileName = f.split('/')[-1].split('.')[0]
             bar()
-            if fileName in dic_center_towers:
+            if fileName in dic_center_obj:
                 las_pc = laspy.read(f)
                 if dataset == 'CAT3' or dataset == 'RIBERA':
                     nir = las_pc.nir
@@ -179,12 +192,12 @@ def get_context(dic_center_towers, w_size=[40, 40], path='', dataset='', min_p=1
                                              las_pc.intensity,
                                              red, green, blue,
                                              nir))
-                dict_w_c = dic_center_towers[fileName]
+                dict_w_c = dic_center_obj[fileName]
 
                 # Data Augmentation
                 for ix in range(data_augm):
                     for w in dict_w_c:
-
+                        # First iteration is stored without rotation or translation
                         if ix != 0 and data_augm > 0:
                             # get probabilities of variation for data augmentation
                             p_xpos = random.randint(0, 10)
@@ -216,7 +229,7 @@ def get_context(dic_center_towers, w_size=[40, 40], path='', dataset='', min_p=1
                             count += 1
                             # store las file
                             path_las_dir = os.path.join(save_path, dirName + '_' + str(min_p) + 'p')
-                            new_file_name = name + '_v' +str(ix) + '_' + DATASET_NAME + '_' + fileName + '_w' + str(w)
+                            new_file_name = name + '_v' + str(ix) + '_' + DATASET_NAME + '_' + fileName + '_w' + str(w)
                             store_las_file_from_pc(pc[:, bool_w], new_file_name, path_las_dir, dataset)
 
     print('Total amount of window point clouds with towers:', count)
@@ -264,8 +277,16 @@ def store_las_file_from_pc(pc, fileName, path_las_dir, dataset):
 
 
 def get_points_without_object(selClass, w_size=[70, 70], path='', center_t={}, dataset=''):
-    """get windows without towers
-       Points labeled as selClass are removed """
+    """
+    Get background, i.e. point cloud cubes without towers
+    Points labeled as selClass are removed
+
+    :param selClass: target class
+    :param w_size:
+    :param path:
+    :param center_t:
+    :param dataset:
+    """
 
     logging.info("Get point cloud without towers")
     logging.info('Loading LAS files')
@@ -393,12 +414,13 @@ def split_pointCloud(point_cloud, f_name='', dir='w_no_towers_40x40', path='', w
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--output_folder', type=str, default='datasets', help='output folder')
-    parser.add_argument('--min_p', type=int, default=50, help='minimum number of points in object')
-    parser.add_argument('--sel_class', type=int, default=18, help='selected class')
+    parser.add_argument('--output_folder', type=str, default='/dades/LIDAR/towers_detection/LAS_data_windows',
+                        help='output folder where processed files are stored')
+    parser.add_argument('--min_p', type=int, default=10, help='minimum number of points in object')
+    parser.add_argument('--sel_class', type=int, default=15, help='selected class')
     parser.add_argument('--dataset_name', type=str, default='CAT3', help='name of dataset')
     parser.add_argument('--LAS_files_path', type=str)
-    parser.add_argument('--w_size', default=[100, 100])
+    parser.add_argument('--w_size', default=[40, 40])
 
     args = parser.parse_args()
 
@@ -409,7 +431,7 @@ if __name__ == '__main__':
     LAS_files_path = args.LAS_files_path
 
     # Our Datasets
-    DATASETS = ['CAT3']  # , 'BDN', 'CAT3']
+    DATASETS = ['BDN', 'RIBERA']  # ['CAT3']
     for DATASET_NAME in DATASETS:
         # paths
         if DATASET_NAME == 'BDN':
