@@ -1,8 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import os
 import torch
-# from sklearn.cluster import KMeans
 from k_means_constrained import KMeansConstrained
 from progressbar import progressbar
 
@@ -13,187 +11,6 @@ def transform_2d_img_to_point_cloud(img):
     for i in range(2):
         indices[i] = (indices[i] - img_array.shape[i] / 2) / img_array.shape[i]
     return indices.astype(np.float32)
-
-
-def plot_losses(train_loss, test_loss, save_to_file=None):
-    fig = plt.figure()
-    epochs = len(train_loss)
-    plt.plot(range(epochs), train_loss, 'bo', label='Training loss')
-    plt.plot(range(epochs), test_loss, 'b', label='Test loss')
-    plt.title('Training and test loss')
-    plt.legend()
-    if save_to_file:
-        fig.savefig('figures/Loss.png', dpi=200)
-
-
-def plot_accuracies(train_acc, test_acc, save_to_file=None):
-    fig = plt.figure()
-    epochs = len(train_acc)
-    plt.plot(range(epochs), train_acc, 'bo', label='Training accuracy')
-    plt.plot(range(epochs), test_acc, 'b', label='Test accuracy')
-    plt.title('Training and test accuracy')
-    plt.legend()
-    if save_to_file:
-        fig.savefig(save_to_file)
-
-
-def plot_3d(points, name, n_points=2000):
-    points = points.view(n_points, -1).numpy()
-    fig = plt.figure(figsize=[10, 10])
-    ax = plt.axes(projection='3d')
-    sc = ax.scatter(points[:, 0], points[:, 1], points[:, 2], c=points[:, 3], s=10, marker='o', cmap="viridis",
-                    alpha=0.5)
-    plt.colorbar(sc, shrink=0.5, pad=0.05)
-    directory = 'figures/results_models'
-    plt.title(name + ' classes: ' + str(set(points[:, 3].astype('int'))))
-    plt.show()
-    plt.savefig(os.path.join(directory, name + '.png'), bbox_inches='tight', dpi=100)
-    plt.close()
-
-
-def plot_3d_subplots(points_tNet, fileName, points_i):
-    fig = plt.figure(figsize=[12, 6])
-    #  First subplot
-    # ===============
-    # set up the axes for the first plot
-    # print('points_input', points_i.shape)
-    # print('points_tNet', points_tNet.shape)
-    ax = fig.add_subplot(1, 2, 1, projection='3d')
-    ax.title.set_text('Input data: ' + fileName)
-    sc = ax.scatter(points_i[0, :], points_i[1, :], points_i[2, :], c=points_i[2, :], s=10,
-                    marker='o',
-                    cmap="winter", alpha=0.5)
-    # fig.colorbar(sc, ax=ax, shrink=0.5)  #
-    # Second subplot
-    # ===============
-    # set up the axes for the second plot
-    ax = fig.add_subplot(1, 2, 2, projection='3d')
-    sc2 = ax.scatter(points_tNet[0, :], points_tNet[1, :], points_tNet[2, :], c=points_tNet[2, :], s=10,
-                     marker='o',
-                     cmap="winter", alpha=0.5)
-    ax.title.set_text('Output of tNet')
-    plt.show()
-    directory = 'figures/plots_train/'
-    name = 'tNetOut_' + str(fileName) + '.png'
-    plt.savefig(os.path.join(directory, name), bbox_inches='tight', dpi=150)
-    plt.close()
-
-
-def plot_hist(points, rdm_num):
-    n_bins = 50
-    # fig, axs = plt.subplots(1, 2, sharey=True, tight_layout=True)
-    # # We can set the number of bins with the *bins* keyword argument.
-    # axs[0].hist(points[0, 0, :], bins=n_bins)
-    # axs[1].hist(points[0, 1, :], bins=n_bins)
-    # axs[0].title.set_text('x')
-    # axs[1].title.set_text('y')
-    # plt.show()
-
-    # 2D histogram
-    fig, ax = plt.subplots(tight_layout=True)
-    hist = ax.hist2d(points[0, :], points[1, :], bins=n_bins)
-    fig.colorbar(hist[3], ax=ax)
-    # plt.show()
-    directory = 'figures'
-    name = 'hist_tNet_out_' + str(rdm_num)
-    plt.savefig(os.path.join(directory, name), bbox_inches='tight', dpi=100)
-    plt.close()
-
-
-def plot_3d_sequence_tensorboard(pc, writer_tensorboard, filename, i_w, title, n_clusters=None):
-
-    ax = plt.axes(projection='3d', xlim=(0, 1), ylim=(0, 1), zlim=(0, 0.2))
-    labels = pc[:, 3] == 15
-    # convert array of booleans to array of integers
-    labels = labels.numpy().astype(int)
-    cmap = plt.cm.get_cmap('winter')
-    sc = ax.scatter(pc[:, 0], pc[:, 1], pc[:, 2], c=labels, s=10, marker='o',  cmap=cmap.reversed(), vmin=0, vmax=1)
-    # plt.colorbar(sc)
-    tag = str(n_clusters) + 'k-means_3Dxy' + filename.split('/')[-1]
-    plt.title(title)
-    writer_tensorboard.add_figure(tag, plt.gcf(), i_w)
-
-
-def plot_2d_sequence_tensorboard(pc, writer_tensorboard, filename, i_w):
-    """
-
-    :param pc: [2048, 11]
-    :param writer_tensorboard:
-    :param filename:
-    :param i_w:
-    """
-    ax = plt.axes(xlim=(0, 1), ylim=(0, 1))
-    sc = ax.scatter(pc[:, 0], pc[:, 1], c=pc[:, 3], s=10, marker='o',  cmap='Spectral')
-    plt.colorbar(sc)
-    tag = 'k-means_2Dxy_' + filename.split('/')[-1]
-    # plt.title('PC')
-    writer_tensorboard.add_figure(tag, plt.gcf(), i_w)
-
-
-def get_weights_effective_num_of_samples(n_of_classes, beta, samples_per_cls):
-    """The authors suggest experimenting with different beta values: 0.9, 0.99, 0.999, 0.9999."""
-    effective_num = 1.0 - np.power(beta, samples_per_cls)
-    weights4class = (1.0 - beta) / np.array(effective_num)
-    weights4class = weights4class / np.sum(weights4class)
-    return weights4class
-
-
-def get_weights_inverse_num_of_samples(n_of_classes, samples_per_cls, power=1.0):
-    weights4class = 1.0 / np.array(np.power(samples_per_cls, power))  # [0.03724195 0.00244003]
-    weights4class = weights4class / np.sum(weights4class)
-    return weights4class
-
-
-def get_weights_sklearn(n_of_classes, samples_per_cls):
-    weights4class = np.sum(samples_per_cls) / np.multiply(n_of_classes, samples_per_cls)
-    weights4class = weights4class / np.sum(weights4class)
-    return weights4class
-
-
-def get_weights4class(sample_weighing_method, n_classes, samples_per_cls, beta=None):
-    """
-
-       :param sample weighing_method: str, options available: "EFS" "INS" "ISNS"
-       :param n_classes: int, representing the total number of classes in the entire train set
-       :param samples_per_cls: A python list of size [n_classes]
-       :param labels: torch tensor of size [batch] containing labels
-       :param beta: float,
-
-       :return weights4class: torch. tensor of size [batch, n_classes]
-    """
-    if sample_weighing_method == 'EFS':
-        weights4class = get_weights_effective_num_of_samples(n_classes, beta, samples_per_cls)
-    elif sample_weighing_method == 'INS':
-        weights4class = get_weights_inverse_num_of_samples(n_classes, samples_per_cls)
-    elif sample_weighing_method == 'ISNS':
-        weights4class = get_weights_inverse_num_of_samples(n_classes, samples_per_cls, 0.5)  # [0.9385, 0.0615]
-    elif sample_weighing_method == 'sklearn':
-        weights4class = get_weights_sklearn(n_classes, samples_per_cls)
-    else:
-        return None
-
-    weights4class = torch.tensor(weights4class).float()
-    return weights4class
-
-
-def get_weights4sample(weights4class, labels=None):
-    """
-    :param weights4class: torch tensor of size [batch, n_classes]
-    :param labels:
-    :return:
-    """
-    # one-hot encoding
-    labels = labels.to('cpu').numpy()  # [batch] labels defines columns of non-zero elements
-    one_hot = np.zeros((labels.size, 2))  # [batch, 2]
-    rows = np.arange(labels.size)
-    one_hot[rows, labels] = 1
-
-    weights4samples = weights4class.to('cpu').unsqueeze(0)
-    weights4samples = weights4samples.repeat(labels.shape[0], 1)
-    weights4samples = torch.tensor(np.array(weights4samples * one_hot))
-    weights4samples = weights4samples.sum(1).cpu()
-
-    return weights4samples
 
 
 def split4classif_point_cloud(points, n_points=2048, plot=False, writer_tensorboard=None, filenames=[], lengths=[],
@@ -588,9 +405,9 @@ def split4cls_rdm(points, n_points=2048, targets=[], device='cuda', duplicate=Tr
     return pc_w, targets_w
 
 
-def save_checkpoint_rnn(name, task, epoch, epochs_since_improvement, rnn_model, attn_model, optimizer_rnn, optimizer_att,
+def save_checkpoint_rnn(name, task, epoch, epochs_since_improvement, rnn_model, attn_model, optimizer_rnn,
+                        optimizer_att,
                         accuracy, batch_size, learning_rate, number_of_points, weighing_method):
-
     state = {
         'rnn_model': rnn_model.state_dict(),
         'attn_model': attn_model.state_dict(),

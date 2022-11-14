@@ -1,25 +1,14 @@
 
 import argparse
-import json
 import time
-from progressbar import progressbar
 from torch.utils.data import random_split
 import torch.nn.functional as F
-from torch.utils.tensorboard import SummaryWriter
 from pointNet.datasets import LidarDataset
 from pointNet.model.pointnetRNN import GRUPointNet, RNNSegmentationPointNet
 import logging
-import datetime
-from sklearn.metrics import balanced_accuracy_score
 import warnings
-from pointNet.utils import *
 from pointNet.collate_fns import *
 from prettytable import PrettyTable
-
-from sklearn.metrics import precision_recall_curve
-from sklearn.metrics import f1_score
-from sklearn.metrics import auc
-from collections import Counter
 
 warnings.filterwarnings('ignore')
 

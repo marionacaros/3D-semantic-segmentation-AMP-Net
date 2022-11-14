@@ -1,17 +1,11 @@
 import argparse
-import json
 import time
-from progressbar import progressbar
 from torch.utils.data import random_split
 import torch.nn.functional as F
-from torch.utils.tensorboard import SummaryWriter
 from pointNet.datasets import LidarDataset
-from pointNet.model.pointnetRNN import GRUPointNet, RNNSegmentationPointNet
+from pointNet.model.pointnetRNN import GRUPointNet
 import logging
-import datetime
-from sklearn.metrics import balanced_accuracy_score
 import warnings
-from pointNet.utils import *
 from pointNet.collate_fns import *
 from prettytable import PrettyTable
 

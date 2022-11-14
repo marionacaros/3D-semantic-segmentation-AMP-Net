@@ -2,7 +2,6 @@ import argparse
 import torch.optim as optim
 import torch.nn.functional as F
 import time
-from progressbar import progressbar
 from torch.utils.data import random_split
 from torch.utils.tensorboard import SummaryWriter
 from pointNet.datasets import LidarDataset
@@ -14,7 +13,7 @@ import logging
 import datetime
 from sklearn.metrics import balanced_accuracy_score
 import warnings
-from pointNet.utils import *
+from utils.utils import *
 from prettytable import PrettyTable
 
 warnings.filterwarnings('ignore')

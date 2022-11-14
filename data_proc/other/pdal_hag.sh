@@ -1,23 +1,23 @@
 #!/bin/bash
 
-for p in /home/m.caros/work/objectDetection/datasets/CAT3/w_towers_40x40_10p/tower_moved_*.las; do
+for p in /home/m.caros/work/objectDetection/datasets/CAT3/w_towers_40x40_10p/tower_v*.las; do
   pdal translate $p $p hag_nn --writers.las.extra_dims="HeightAboveGround=float32"
   echo "$p"
 done
-for p in /home/m.caros/work/objectDetection/datasets/RIBERA/w_towers_40x40_10p/tower_moved_*.las; do
+for p in /home/m.caros/work/objectDetection/datasets/RIBERA/w_towers_40x40_10p/tower_v*.las; do
   pdal translate $p $p hag_nn --writers.las.extra_dims="HeightAboveGround=float32"
   echo "$p"
 done
-for p in /home/m.caros/work/objectDetection/datasets/BDN/w_towers_40x40_10p/tower_moved_*.las; do
+for p in /home/m.caros/work/objectDetection/datasets/BDN/w_towers_40x40_10p/tower_v*.las; do
   pdal translate $p $p hag_nn --writers.las.extra_dims="HeightAboveGround=float32"
   echo "$p"
 done
 
-for p in /home/m.caros/work/objectDetection/datasets/CAT3/w_othertowers_100x100_50p/tower_moved_*.las; do
+for p in /home/m.caros/work/objectDetection/datasets/CAT3/w_othertowers_100x100_50p/othertower_*.las; do
   pdal translate $p $p hag_nn --writers.las.extra_dims="HeightAboveGround=float32"
   echo "$p"
 done
-for p in /home/m.caros/work/objectDetection/datasets/RIBERA/w_othertowers_100x100_50p/tower_moved_*.las; do
+for p in /home/m.caros/work/objectDetection/datasets/RIBERA/w_othertowers_100x100_50p/othertower_*.las; do
   pdal translate $p $p hag_nn --writers.las.extra_dims="HeightAboveGround=float32"
   echo "$p"
 done

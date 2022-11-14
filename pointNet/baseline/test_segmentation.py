@@ -2,12 +2,10 @@ import argparse
 import sys
 import pickle
 import time
-from progressbar import progressbar
 from torch.utils.data import random_split
 from pointNet.datasets import LidarDataset
-from pointNet.model.pointnetRNN import *
 import logging
-from pointNet.utils import *
+from utils.utils import *
 # from model.pointnet import *
 from pointNet.model.light_pointnet_IGBVI import *
 

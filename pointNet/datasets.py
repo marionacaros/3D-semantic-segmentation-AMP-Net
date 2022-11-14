@@ -20,11 +20,11 @@ class LidarDataset(data.Dataset):
                  files=None,
                  fixed_num_points=True,
                  c_sample=False,
-                 split='kmeans'):
+                 path_kmeans=''):
         # 0 -> no tower
         # 1 -> tower
-
-        self.dataset_folder = dataset_folder + '/'  # /dades/LIDAR/towers_detection/datasets/
+        self.path_kmeans = path_kmeans + '/'
+        self.dataset_folder = dataset_folder + '/'  # /dades/LIDAR/towers_detection/datasets/pc_towers_40x40/sampled_2048
         self.task = task
         self.n_points = number_of_points
         self.n_windows = number_of_windows
@@ -32,11 +32,15 @@ class LidarDataset(data.Dataset):
         self.fixed_num_points = fixed_num_points
         self.classes_mapping = {}
         self.constrained_sampling = c_sample
-        self.split = split
-        if split == 'kmeans':
-            self.paths_files = [self.dataset_folder + 'kmeans_' + f for f in self.files]
-        else:
-            self.paths_files = [self.dataset_folder + f for f in self.files]
+        self.paths_files_kmeans=[]
+        # if path_kmeans:
+        #     for f in self.files:
+        #         path = self.path_kmeans + 'kmeans_' + f
+        #         if os.path.exists(path):
+        #             self.paths_files_kmeans.append(path)
+
+        # self.paths_files_kmeans = [self.path_kmeans + 'kmeans_' + f for f in self.files]
+        self.paths_files = [self.dataset_folder + f for f in self.files]
         self._init_mapping()
 
     def __len__(self):
@@ -54,23 +58,34 @@ class LidarDataset(data.Dataset):
         self.len_landscape = sum(value == 0 for value in self.classes_mapping.values())
 
     def __getitem__(self, index):
+        """
+        If task is classification and no path_kmeans is given, it returns a raw point cloud (pc), labels and filename
+        If task is classification and path_kmeans is given, it returns a clustered point cloud into windows (pc_w),
+        labels and filename
+        If task is segmentation, it returns a raw point cloud (pc), clustered point cloud (pc_w), labels and filename.
 
+        :param index: index of the file
+        :return: pc: [n_points, dims], pc_w: [2048, dims, w_len], labels, filename
+        """
         filename = self.paths_files[index]
+        # file_kmeans = self.paths_files_kmeans[index]
+        labels = None
+        if not self.path_kmeans:
+            pc = self.prepare_data(filename,
+                                   self.n_points,
+                                   fixed_num_points=self.fixed_num_points,
+                                   constrained_sample=self.constrained_sampling,
+                                   max_points=self.n_windows * self.n_points)
+            # pc size [10240,11]
 
-        if not self.split == 'kmeans':
-            pc_w = self.prepare_data(filename,
-                                     self.n_points,
-                                     fixed_num_points=self.fixed_num_points,
-                                     constrained_sample=self.constrained_sampling,
-                                     max_points=self.n_windows * self.n_points)
-            # classification: pc size [10240,11]
-        else:
+        elif self.path_kmeans:
             # load data clustered in windows with k-means
-            pc_w = torch.load(filename, map_location=torch.device('cpu'))
+            pc = torch.load(filename, map_location=torch.device('cpu'))
             # pc_w size [2048, dims, w_len]
-        labels = self.get_labels(pc_w, self.classes_mapping[self.files[index]], self.task)
 
-        return pc_w, labels, filename
+        labels = self.get_labels(pc, self.classes_mapping[self.files[index]], self.task)
+
+        return pc, labels, filename
 
     @staticmethod
     def prepare_data(point_file,
@@ -118,10 +133,18 @@ class LidarDataset(data.Dataset):
         :param task: classification or segmentation
         """
         if task == 'segmentation':
-            segment_labels = pointcloud[:, 3, :].long()  # [2048, 5]
-            segment_labels[segment_labels != 15] = 0
-            segment_labels[segment_labels == 15] = 1
-            labels = segment_labels  # [2048, 5]
+            segment_labels = pointcloud[:, 3, :]  # [2048, 5]
+            segment_labels[segment_labels == 15] = 100
+            segment_labels[segment_labels == 3] = 200
+            segment_labels[segment_labels == 4] = 300
+            segment_labels[segment_labels == 5] = 400
+            segment_labels[segment_labels < 100] = 0
+            segment_labels = (segment_labels/100)
+
+            # segment_labels[segment_labels == 15] = 1
+            # segment_labels[segment_labels != 15] = 0
+
+            labels = segment_labels.type(torch.LongTensor)  # [2048, 5]
 
         elif task == 'classification':
             labels = [point_cloud_class]

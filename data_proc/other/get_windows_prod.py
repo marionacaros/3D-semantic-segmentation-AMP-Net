@@ -1,11 +1,8 @@
 import laspy
-from utils import *
+from utils.utils import *
 import logging
 import time
-from progressbar import progressbar
 from alive_progress import alive_bar
-import json
-import random
 import hashlib
 import pickle
 

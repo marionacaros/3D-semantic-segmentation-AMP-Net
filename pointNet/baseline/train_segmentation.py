@@ -1,9 +1,7 @@
 import argparse
-
 import torch.optim as optim
 import torch.nn.functional as F
 import time
-from progressbar import progressbar
 from torch.utils.data import random_split
 from torch.utils.tensorboard import SummaryWriter
 from pointNet.datasets import LidarDataset
@@ -14,8 +12,7 @@ import logging
 import datetime
 from sklearn.metrics import balanced_accuracy_score
 import warnings
-from pointNet.utils import *
-import glob
+from utils.utils import *
 from prettytable import PrettyTable
 
 warnings.filterwarnings('ignore')
@@ -146,7 +143,6 @@ def train(
             points = points.view(batch_size, n_points, -1).to(device)  # [batch, n_samples, dims]
             targets = targets.view(batch_size, -1).to(device)  # [batch, n_samples]
 
-            # Pytorch accumulates gradients. We need to clear them out before each instance
             optimizer.zero_grad()
             model = model.train()
             preds, feature_transform = model(points)

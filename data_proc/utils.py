@@ -8,6 +8,25 @@ import laspy
 import pickle
 
 
+def rotatePoint(angle, x, y):
+    a = np.radians(angle)
+    cosa = np.cos(a)
+    sina = np.sin(a)
+    x_rot = x * cosa - y * sina
+    y_rot = x * sina + y * cosa
+    return x_rot, y_rot
+
+
+def get_max(files_path):
+    files = glob.glob(os.path.join(files_path, '*.las'))
+    for file in progressbar(files):
+        fileName = file.split('/')[-1].split('.')[0]
+        data_f = laspy.read(file)
+        hag = data_f.HeightAboveGround
+        if hag.max() > max_z:
+            max_z = hag.max()
+
+
 def plot_class_points(inFile, fileName, selClass, save_plot=False, point_size=40, save_dir='figures/'):
     """Plot point cloud of a specific class"""
 
