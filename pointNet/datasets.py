@@ -68,14 +68,12 @@ class LidarDataset(data.Dataset):
         :return: pc: [n_points, dims], pc_w: [2048, dims, w_len], labels, filename
         """
         filename = self.paths_files[index]
-        # file_kmeans = self.paths_files_kmeans[index]
-        labels = None
+
         if not self.path_kmeans:
             pc = self.prepare_data(filename,
                                    self.n_points,
                                    fixed_num_points=self.fixed_num_points,
-                                   constrained_sample=self.constrained_sampling,
-                                   max_points=self.n_windows * self.n_points)
+                                   constrained_sample=self.constrained_sampling)
             # pc size [10240,11]
 
         elif self.path_kmeans:
@@ -91,8 +89,7 @@ class LidarDataset(data.Dataset):
     def prepare_data(point_file,
                      number_of_points=None,
                      fixed_num_points=True,
-                     constrained_sample=False,
-                     max_points=2048 * 5):
+                     constrained_sample=False):
 
         with open(point_file, 'rb') as f:
             pc = pickle.load(f).astype(np.float32)  # [2048, 11]
@@ -102,11 +99,6 @@ class LidarDataset(data.Dataset):
         # if constrained sampling -> get points labeled for sampling
         if constrained_sample:
             pc = pc[pc[:, -1] == 1]  # should be label of position 11
-
-        # if size > max num of points -> random sample
-        if pc.shape[0] > max_points:
-            sampling_indices = np.random.choice(pc.shape[0], max_points)
-            pc = pc[sampling_indices, :]
 
         # sample points if fixed_num_points (random sampling, no RNN)
         if fixed_num_points and pc.shape[0] > number_of_points:
@@ -125,19 +117,31 @@ class LidarDataset(data.Dataset):
 
     @staticmethod
     def get_labels(pointcloud,
-                   point_cloud_class=None,
+                   point_cloud_class,
                    task='classification'):
         """
+        Get labels for classification or segmentation
+
+        Segmentation labels:
+        0 -> background (other classes we're not interested)
+        1 -> tower
+        2 -> low vegetation
+        3 -> medium vegetation
+        4 -> high vegetation
+
         :param pointcloud: [n_points, dim, seq_len]
-        :param point_cloud_class: 0 or 1
+        :param point_cloud_class: point cloud category
         :param task: classification or segmentation
+
+        :return labels: points with categories to segment or classify
         """
         if task == 'segmentation':
             segment_labels = pointcloud[:, 3, :]  # [2048, 5]
             segment_labels[segment_labels == 15] = 100
-            segment_labels[segment_labels == 3] = 200
-            segment_labels[segment_labels == 4] = 300
-            segment_labels[segment_labels == 5] = 400
+            segment_labels[segment_labels == 14] = 200
+            segment_labels[segment_labels == 3] = 300
+            segment_labels[segment_labels == 4] = 400
+            segment_labels[segment_labels == 5] = 500
             segment_labels[segment_labels < 100] = 0
             segment_labels = (segment_labels/100)
 

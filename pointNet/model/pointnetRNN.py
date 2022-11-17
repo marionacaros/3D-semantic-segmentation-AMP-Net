@@ -135,39 +135,61 @@ class ClassificationWithAttention(nn.Module):
 
 
 class SegmentationWithAttention(nn.Module):
-    def __init__(self, embed_dim, num_heads, num_classes=2, dropout=0.3, num_w=5):
+    def __init__(self, embed_dim, num_heads, num_classes=2, dropout=0.3, num_w=5, device='cuda'):
         super(SegmentationWithAttention, self).__init__()
         self.embed_dim = embed_dim  # todo test 2046, 3072
+        self.device = device
 
         self.attention = nn.MultiheadAttention(embed_dim,
                                                num_heads=num_heads,  # todo test 10
                                                dropout=dropout)
 
-        self.conv_1 = nn.Conv1d(num_w, 1, 1, bias=True)
-        self.fc_2 = nn.Linear(embed_dim, 128)
-        self.fc_3 = nn.Linear(128, num_classes)
-        self.bn_2 = nn.BatchNorm1d(128)
-        self.dropout_1 = nn.Dropout(dropout)
+        self.conv_1 = nn.Conv1d(num_w, 1, 1, bias=True)  # ????
 
-    def forward(self, x, local_features, attn_mask=None):
-        gl_feat_attn, attn_output_weights = self.attention(x, x, x,
+        self.conv_2 = nn.Conv1d(320, 128, 1)
+        self.conv_3 = nn.Conv1d(128, 64, 1)
+        self.conv_4 = nn.Conv1d(64, num_classes, 1)
+
+        self.dropout = nn.Dropout(0.3)
+
+        self.bn_2 = nn.BatchNorm1d(128)
+        self.bn_3 = nn.BatchNorm1d(64)
+
+    def forward(self, gl_feats, lo_feats, np_cluster, attn_mask=None):
+        # gl_feats [b, 5, 256]
+        # lo_feats [b, 10240, 64]
+        # np_cluster [2048, 2048, 2048, 2048, 2048]
+        gl_feat_attn, attn_output_weights = self.attention(gl_feats, gl_feats, gl_feats,
                                                            key_padding_mask=None,
                                                            need_weights=True,
                                                            attn_mask=attn_mask)
-        # [w_len, b, 512] [b, w_len, w_len]
-        gl_feat_attn = gl_feat_attn.view(-1, gl_feat_attn.shape[0], self.embed_dim)  # [b, w_len, 512]
-        gl_feat_attn = F.relu(self.conv_1(gl_feat_attn)).view(-1, self.embed_dim)  # [b, 512]
-        # repeat global feature
-        gl_feat_attn = gl_feat_attn.view(-1, gl_feat_attn.shape[1], 1).repeat(1, 1, local_features.shape[0])  # [b, 512, pts]
+        # # [w_len, b, 512] [b, w_len, w_len]
+        # gl_feat_attn = gl_feat_attn.view(-1, gl_feat_attn.shape[0], self.embed_dim)  # [b, w_len, 512]
+        # gl_feat_attn = F.relu(self.conv_1(gl_feat_attn)).view(-1, self.embed_dim)  # [b, 512]
+        # # repeat global feature
+        # gl_feat_attn = gl_feat_attn.view(-1, gl_feat_attn.shape[1], 1).repeat(1, 1, local_features.shape[0])  # [b, 512, pts]
+        #
+        # # local_features shape: [total_points, b, 64]
+        # local_features = local_features.view(-1, local_features.shape[2], local_features.shape[0])
+        # pc_embeds = torch.cat((gl_feat_attn, local_features), dim=1)  # [b, 576, points]
 
-        # local_features shape: [total_points, b, 64]
-        local_features = local_features.view(-1, local_features.shape[2], local_features.shape[0])
-        pc_embeds = torch.cat((gl_feat_attn, local_features), dim=1)  # [b, 576, points]
+        # ---
+        global_feat = torch.FloatTensor().to(self.device)
+        # loop over windows to repeat global feature tensor as many times as number of points per cluster
+        for i in range(gl_feat_attn.shape[1]):
+            h_cluster = gl_feat_attn[:, i, :].view(-1, 1, gl_feat_attn.shape[2])
+            h_cluster = h_cluster.repeat(1, np_cluster[i], 1)
+            global_feat = torch.cat((global_feat, h_cluster), dim=1)
 
-        x = F.relu(self.conv_1(gl_feat_attn))  # [b, 1, 512]
-        x = x.view(-1, self.embed_dim)
-        x = F.relu(self.bn_2(self.fc_2(x)))
-        out = self.fc_3(x)
+        # concatenate local features and global hidden outputs
+        pc_embed = torch.cat((lo_feats, global_feat), dim=2)  # [b, points, 320]
+        pc_embed = pc_embed.transpose(2, 1)
+
+        out = F.relu(self.bn_2(self.conv_2(pc_embed)))
+        out = self.dropout(out)
+        out = F.relu(self.bn_3(self.conv_3(out)))
+        out = self.dropout(out)
+        out = self.conv_4(out)
 
         return out, attn_output_weights
 
@@ -198,8 +220,8 @@ class SegmentationWithGRU(nn.Module):
         # out_h shape: [batch, 5, 256]
 
         global_feat = torch.FloatTensor().to(self.device)
+        # loop over windows to repeat global feature tensor as many times as number of points per cluster
         for i in range(out_h.shape[1]):
-
             h_cluster = out_h[:, i, :].view(-1, 1, out_h.shape[2])
             h_cluster = h_cluster.repeat(1, np_cluster[i], 1)
             global_feat = torch.cat((global_feat, h_cluster), dim=1)

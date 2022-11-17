@@ -1,10 +1,10 @@
 import argparse
-import torch
 import torch.optim as optim
 import torch.nn.functional as F
 import time
 from torch.utils.data import random_split
 from torch.utils.tensorboard import SummaryWriter
+from torchsummary import summary
 from pointNet.datasets import LidarDataset
 from pointNet.model.pointnetRNN import BasePointNet, SegmentationWithGRU, ClassificationFromGRU
 import datetime
@@ -12,8 +12,8 @@ import warnings
 from pointNet.collate_fns import *
 from prettytable import PrettyTable
 from utils.utils_plot import *
-from utils.utils import *
 from utils.get_metrics import *
+from utils.utils import *
 
 warnings.filterwarnings('ignore')
 
@@ -66,18 +66,22 @@ def train_gru(task: str,
         val_files = f.read().splitlines()
     print(f'Dataset folder: {dataset_folder}')
 
-    NAME = 'GRUg' + str(GLOBAL_FEAT_SIZE) + 'h' + str(HIDDEN_SIZE) + 'c5'
+    NAME = 'GRUg' + str(GLOBAL_FEAT_SIZE) + 'h' + str(HIDDEN_SIZE)
 
     # Datasets train / val / test
     if task == 'classification':
         writer_train = SummaryWriter(location + now.strftime("%m-%d-%H:%M") + 'cls_train' + NAME)
         writer_val = SummaryWriter(location + now.strftime("%m-%d-%H:%M") + 'cls_val' + NAME)
         print(f"Tensorboard runs: {writer_train.get_logdir()}")
+        # padding batch function
+        collate_fn = collate_seq_padd
 
     elif task == 'segmentation':
         writer_train = SummaryWriter(location + now.strftime("%m-%d-%H:%M") + 'seg_train' + NAME)
         writer_val = SummaryWriter(location + now.strftime("%m-%d-%H:%M") + 'seg_val' + NAME)
         print(f"Tensorboard runs: {writer_train.get_logdir()}")
+        # padding batch function
+        collate_fn = collate_seq4segmen_padd
 
     # Initialize datasets
     train_dataset = LidarDataset(dataset_folder=dataset_folder,
@@ -107,11 +111,6 @@ def train_gru(task: str,
     print(f'Samples for validation: {len(val_dataset)}')
     print(f'Task: {train_dataset.task}')
 
-    if task == 'segmentation':
-        collate_fn = collate_seq4segmen_padd
-    else:
-        collate_fn = collate_seq_padd
-
     # Datalaoders
     train_dataloader = torch.utils.data.DataLoader(train_dataset,
                                                    batch_size=batch_size,
@@ -133,9 +132,9 @@ def train_gru(task: str,
                             global_feat_dim=GLOBAL_FEAT_SIZE,
                             device=device)
     if task == 'classification':
-        pred_net = ClassificationFromGRU(num_classes=5)
+        pred_net = ClassificationFromGRU(num_classes=6)
     elif task == 'segmentation':
-        pred_net = SegmentationWithGRU(num_classes=5, global_feat_size=GLOBAL_FEAT_SIZE, hidden_size=HIDDEN_SIZE,
+        pred_net = SegmentationWithGRU(num_classes=6, global_feat_size=GLOBAL_FEAT_SIZE, hidden_size=HIDDEN_SIZE,
                                        device=device)
     # Models to device
     pointnet.to(device)
@@ -146,6 +145,7 @@ def train_gru(task: str,
     epochs_since_improvement = 0
 
     if task == 'classification':
+        # todo add classes to samples_per_cls
         c_weights = get_weights4class(weighing_method,
                                       n_classes=train_dataset.NUM_CLASSIFICATION_CLASSES,
                                       samples_per_cls=[train_dataset.len_landscape + val_dataset.len_landscape,
@@ -154,27 +154,26 @@ def train_gru(task: str,
 
     # weighted loss
     ce_loss = torch.nn.CrossEntropyLoss(reduction='mean', ignore_index=-1)
-    # optimizer
-    optimizer_rnn = optim.Adam(pointnet.parameters(), lr=learning_rate)
+    # optimizers
+    optimizer_pointnet = optim.Adam(pointnet.parameters(), lr=learning_rate)
     optimizer_pred = optim.Adam(pred_net.parameters(), lr=learning_rate)
 
     # if model_checkpoint:
     #     print('Loading checkpoint')
     #     checkpoint = torch.load(model_checkpoint)
-    #     optimizer_rnn.load_state_dict(checkpoint['model'])  # cls_model
+    #     optimizer_pointnet.load_state_dict(checkpoint['model'])  # cls_model
     #     # optimizer.load_state_dict(checkpoint['optimizer'])
     #     # adjust_learning_rate(optimizer, learning_rate)
 
     # print cls_model and parameters
-    # INPUT_SHAPE = (7, 2000)
-    # summary(cls_model, INPUT_SHAPE)
+    # summary(pointnet, (batch_size, n_points))
+    #
     table = PrettyTable(["Modules", "Parameters"])
     total_params = 0
     for name, parameter in pointnet.named_parameters():
         # if not parameter.requires_grad: continue
         # parameter.requires_grad = False # Freeze all layers
         params = parameter.numel()
-        # print(f'{name} {parameter}')
         table.add_row([name, params])
         total_params += params
     for name, parameter in pred_net.named_parameters():
@@ -196,32 +195,55 @@ def train_gru(task: str,
         epoch_val_acc_w = []
         detected_positive = []
         detected_negative = []
-        ious_tower_train = []
-        ious_tower_val = []
+        iou = {
+            'tower_train': [],
+            'tower_val': [],
+            'low_veg_train': [],
+            'low_veg_val': [],
+            'med_veg_train': [],
+            'med_veg_val': [],
+            'high_veg_train': [],
+            'high_veg_val': [],
+            'bckg_train': [],
+            'bckg_val': [],
+            'mean_iou_train': [],
+            'mean_iou_val': [],
+            'cables_train': [],
+            'cables_val': []
+        }
         last_epoch = -1
 
         if epochs_since_improvement == 5:
-            adjust_learning_rate(optimizer_rnn, 0.5)
+            adjust_learning_rate(optimizer_pointnet, 0.5)
             adjust_learning_rate(optimizer_pred, 0.5)
         elif epoch == 15:
-            adjust_learning_rate(optimizer_rnn, 0.5)
+            adjust_learning_rate(optimizer_pointnet, 0.5)
             adjust_learning_rate(optimizer_pred, 0.5)
 
         # --------------------------------------------- train loop ---------------------------------------------
         for data in train_dataloader:
-            metrics, targets, preds, last_epoch = train_loop(data, optimizer_rnn, optimizer_pred, ce_loss,
-                                                             pointnet, pred_net,
-                                                             n_points, writer_train, task, True,
-                                                             weighing_method, beta, c_weights, epoch,
-                                                             last_epoch)
+            metrics, targets, preds, last_epoch = train_loop(data, optimizer_pointnet, optimizer_pred, ce_loss,
+                                                             pointnet, pred_net, writer_train, task, True,
+                                                             c_weights, epoch, last_epoch)
             # discard padded windows to compute accuracy metrics
             preds, targets, _ = rm_padding(preds, targets)
             # compute accuracy
             metrics = get_accuracy(preds, targets, metrics, task, c_weights)
 
             if task == 'segmentation':
-                iou_tower = get_iou_tower(targets, preds)
-                ious_tower_train.append(iou_tower)
+                # Segmentation labels:
+                # 0 -> background (other classes we're not interested)
+                # 1 -> tower
+                # 2 ->
+                # 3 -> low vegetation
+                # 4 -> medium vegetation
+                # 5 -> high vegetation
+                iou['bckg_train'].append(get_iou_obj(targets, preds, 0))
+                iou['tower_train'].append(get_iou_obj(targets, preds, 1))
+                iou['cables_train'].append(get_iou_obj(targets, preds, 2))
+                iou['low_veg_train'].append(get_iou_obj(targets, preds, 3))
+                iou['med_veg_train'].append(get_iou_obj(targets, preds, 4))
+                iou['high_veg_train'].append(get_iou_obj(targets, preds, 5))
 
             # tensorboard
             ce_train_loss.append(metrics['ce_loss'].cpu().item())
@@ -233,12 +255,9 @@ def train_gru(task: str,
         with torch.no_grad():
             first_batch = True
             for data in val_dataloader:
-                metrics, targets, preds, last_epoch = train_loop(data, optimizer_rnn, optimizer_pred,
-                                                                 ce_loss,
-                                                                 pointnet, pred_net,
-                                                                 n_points, writer_val, task, False,
-                                                                 weighing_method, beta, c_weights, epoch,
-                                                                 last_epoch, first_batch)
+                metrics, targets, preds, last_epoch = train_loop(data, optimizer_pointnet, optimizer_pred, ce_loss,
+                                                                 pointnet, pred_net, writer_val, task, False,
+                                                                 c_weights, epoch, last_epoch, first_batch)
                 first_batch = False
                 # discard padded windows to compute accuracy metrics
                 preds, targets, _ = rm_padding(preds, targets)
@@ -246,8 +265,12 @@ def train_gru(task: str,
                 metrics = get_accuracy(preds, targets, metrics, task, c_weights)
 
                 if task == 'segmentation':
-                    iou_tower = get_iou_tower(preds, targets)
-                    ious_tower_val.append(iou_tower)
+                    iou['bckg_val'].append(get_iou_obj(targets, preds, 0))
+                    iou['tower_val'].append(get_iou_obj(targets, preds, 1))
+                    iou['cables_val'].append(get_iou_obj(targets, preds, 2))
+                    iou['low_veg_val'].append(get_iou_obj(targets, preds, 3))
+                    iou['med_veg_val'].append(get_iou_obj(targets, preds, 4))
+                    iou['high_veg_val'].append(get_iou_obj(targets, preds, 5))
 
                 # tensorboard
                 epoch_val_loss.append(metrics['loss'].cpu().item())  # in val ce_loss and total_loss are the same
@@ -274,12 +297,22 @@ def train_gru(task: str,
         writer_train.add_scalar('accuracy', np.mean(epoch_train_acc), epoch)
         writer_val.add_scalar('accuracy', np.mean(epoch_val_acc), epoch)
         writer_val.add_scalar('epochs_since_improvement', epochs_since_improvement, epoch)
-        writer_val.add_scalar('learning_rate', optimizer_rnn.param_groups[0]['lr'], epoch)
+        writer_val.add_scalar('learning_rate', optimizer_pointnet.param_groups[0]['lr'], epoch)
         writer_train.add_scalar('c_weights', c_weights[1].cpu(), epoch)
         writer_val.add_scalar('c_weights', c_weights[0].cpu(), epoch)
         if task == 'segmentation':
-            writer_train.add_scalar('_iou_tower', np.mean(ious_tower_train), epoch)
-            writer_val.add_scalar('_iou_tower', np.mean(ious_tower_val), epoch)
+            writer_train.add_scalar('_iou_tower', np.mean(iou['tower_train']), epoch)
+            writer_val.add_scalar('_iou_tower', np.mean(iou['tower_val']), epoch)
+            writer_train.add_scalar('_iou_background', np.mean(iou['bckg_train']), epoch)
+            writer_val.add_scalar('_iou_background', np.mean(iou['bckg_val']), epoch)
+            writer_train.add_scalar('_iou_low_veg', np.mean(iou['low_veg_train']), epoch)
+            writer_val.add_scalar('_iou_low_veg', np.mean(iou['low_veg_val']), epoch)
+            writer_train.add_scalar('_iou_med_veg', np.mean(iou['med_veg_train']), epoch)
+            writer_val.add_scalar('_iou_med_veg', np.mean(iou['med_veg_val']), epoch)
+            writer_train.add_scalar('_iou_high_veg', np.mean(iou['high_veg_train']), epoch)
+            writer_val.add_scalar('_iou_high_veg', np.mean(iou['high_veg_val']), epoch)
+            writer_train.add_scalar('_iou_cables', np.mean(iou['cables_train']), epoch)
+            writer_val.add_scalar('_iou_cables', np.mean(iou['cables_val']), epoch)
         elif task == 'classification':
             writer_train.add_scalar('accuracy_weighted', np.mean(epoch_train_acc_w), epoch)
             writer_val.add_scalar('accuracy_weighted', np.mean(epoch_val_acc_w), epoch)
@@ -293,7 +326,7 @@ def train_gru(task: str,
                 name = now.strftime("%m-%d-%H:%M") + '_clsGRU' + NAME
             elif task == 'segmentation':
                 name = now.strftime("%m-%d-%H:%M") + '_segGRU' + NAME
-            save_checkpoint_rnn(name, task, epoch, epochs_since_improvement, pointnet, pred_net, optimizer_rnn,
+            save_checkpoint_rnn(name, task, epoch, epochs_since_improvement, pointnet, pred_net, optimizer_pointnet,
                                 optimizer_pred,
                                 metrics['accuracy'],
                                 batch_size, learning_rate, n_points, weighing_method)
@@ -310,23 +343,24 @@ def train_gru(task: str,
     print("--- TOTAL TIME: %s h ---" % (round((time.time() - start_time) / 3600, 3)))
 
 
-def train_loop(data, optimizer_rnn, optimizer_pred, ce_loss, pointnet, seg_model, n_points=2048,
-               w_tensorboard=None, task='classification', train=True, weighing_method='EFS', beta=0.999,
+def train_loop(data, optimizer_rnn, optimizer_pred, ce_loss, pointnet, gru_model,
+               w_tensorboard=None, task='classification', train=True,
                c_weights=torch.Tensor(), epoch=0, last_epoch=0, first_batch_val=False):
     """
+
     :param data: tuple with (points, targets, filenames, lengths, len_w)
     :param optimizer_rnn:
     :param optimizer_pred:
     :param ce_loss: CrossEntropy loss
-    :param seg_model:
+    :param gru_model:
     :param pointnet:
-    :param n_points: number of points per window
     :param w_tensorboard: tensorboard writer
     :param task: 'classification' or 'segmentation'
     :param train: set to True to perform backward propagation
-    :param beta:
-    :param weighing_method:
     :param c_weights:
+    :param first_batch_val:
+    :param last_epoch:
+    :param epoch:
 
     :return:
     metrics, targets, preds, last_epoch
@@ -342,10 +376,10 @@ def train_loop(data, optimizer_rnn, optimizer_pred, ce_loss, pointnet, seg_model
 
     if train:
         pointnet = pointnet.train()
-        seg_model = seg_model.train()
+        gru_model = gru_model.train()
     else:
         pointnet = pointnet.eval()
-        seg_model = seg_model.eval()
+        gru_model = gru_model.eval()
 
     pc_w = pc_w.to(device)  # [b, 2048, dims, w_len]
     targets = targets.to(device)
@@ -378,10 +412,10 @@ def train_loop(data, optimizer_rnn, optimizer_pred, ce_loss, pointnet, seg_model
             pc = torch.cat((pc, in_points.cpu()), dim=1)
 
     if task == 'segmentation':
-        logits = seg_model(gl_feats, lo_feats, np_cluster)  # [b, 2, 10240]
+        logits = gru_model(gl_feats, lo_feats, np_cluster)  # [b, 2, 10240]
 
     else:  # classification
-        # logits= seg_model(pc_rnn_embeds)
+        # logits= gru_model(pc_rnn_embeds)
         targets_pc = targets[:, 0]
 
     # CrossEntropy loss
@@ -392,7 +426,8 @@ def train_loop(data, optimizer_rnn, optimizer_pred, ce_loss, pointnet, seg_model
     probs = F.log_softmax(logits.detach().to('cpu'), dim=1)
     preds = torch.LongTensor(probs.data.max(1)[1])
 
-    if epoch >= 10:
+    # plot predictions in Tensorboard
+    if epoch >= 0:
         if epoch != last_epoch or first_batch_val == True:
             preds_plot, targets_plot, mask = rm_padding(preds[0, :].cpu(), targets_pc[0, :])
             # Tensorboard
@@ -417,22 +452,12 @@ def train_loop(data, optimizer_rnn, optimizer_pred, ce_loss, pointnet, seg_model
     return metrics, targets_pc, preds, last_epoch
 
 
-def rm_padding(preds, targets):
-    # targets = targets.view(-1)
-    # preds = preds.view(-1)
-    mask = targets != -1
-    targets = targets[mask]
-    preds = preds[mask]
-
-    return preds, targets, mask
-
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('task', type=str, choices=['classification', 'segmentation'], help='type of task')
     parser.add_argument('dataset_folder', type=str, help='path to the dataset folder')
     parser.add_argument('--path_list_files', type=str,
-                        default='train_test_files/RGBN',
+                        default='train_test_files/RGBN_x10',
                         help='output folder')
     parser.add_argument('--output_folder', type=str, default='pointNet/results', help='output folder')
     parser.add_argument('--number_of_points', type=int, default=2048, help='number of points per cloud')

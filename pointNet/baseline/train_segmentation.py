@@ -2,7 +2,6 @@ import argparse
 import torch.optim as optim
 import torch.nn.functional as F
 import time
-from torch.utils.data import random_split
 from torch.utils.tensorboard import SummaryWriter
 from pointNet.datasets import LidarDataset
 from pointNet.model.light_pointnet_IGBVI import SegmentationPointNet_IGBVI
@@ -12,7 +11,6 @@ import logging
 import datetime
 from sklearn.metrics import balanced_accuracy_score
 import warnings
-from utils.utils import *
 from prettytable import PrettyTable
 
 warnings.filterwarnings('ignore')

@@ -5,7 +5,6 @@ import time
 from torch.utils.data import random_split
 from pointNet.datasets import LidarDataset
 import logging
-from utils.utils import *
 # from model.pointnet import *
 from pointNet.model.light_pointnet_IGBVI import *
 

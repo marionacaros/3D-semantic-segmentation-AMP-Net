@@ -32,6 +32,8 @@ def collate_seq_padd(batch, num_w=5):
 def collate_seq4segmen_padd(batch, num_w=5):
     """
     Pads batch of variable length
+    Replicates points to achieve desired amount of windows
+    Padds with -1 tensor of targets to mask values in loss during training
 
     :param batch: List of point clouds
     :param num_w: max number of windows
@@ -51,6 +53,8 @@ def collate_seq4segmen_padd(batch, num_w=5):
     for pc_w, labels in zip(b_kmeans_pc, targets):
         p1d = num_w - pc_w.shape[2]  # pad needed windows for batch with replicated windows
         pc_pad = torch.nn.functional.pad(pc_w, (0, p1d), 'replicate')  # [2048, 11, 5]
+        batch_kmeans_data.append(pc_pad)
+
         # mask = torch.zeros(pc_pad.shape)
         # mask[:, :, pc_w.shape[2] + 1:] = True
         # mask = mask[:, 3, :].type(torch.BoolTensor)
@@ -58,13 +62,9 @@ def collate_seq4segmen_padd(batch, num_w=5):
         # pc_pad_labels[mask] = -1
         # pc_pad[:, 3, :] = pc_pad_labels
 
-        batch_kmeans_data.append(pc_pad)
-        # labels = (pc_w[:, 3, :] == 15).type(torch.LongTensor)  # [n_points, seq_len]
         pad_targets.append(torch.nn.functional.pad(labels, (0, p1d), "constant", -1))
 
     batch_kmeans_data = torch.stack(batch_kmeans_data, dim=0)
     pad_targets = torch.stack(pad_targets, dim=0)
-
-    # batch_data = torch.nn.utils.rnn.pad_sequence(b_full_pc, batch_first=False, padding_value=0)  # [max_length,B,D]
 
     return batch_kmeans_data, pad_targets, filenames
