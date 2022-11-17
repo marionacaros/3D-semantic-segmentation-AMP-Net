@@ -10,7 +10,7 @@ import random
 import json
 
 # --------------------------------- DATASET BLOCKS PARTITION  -----------------------------------------------
-main_path = '/dades/LIDAR/towers_detection/datasets/new_kmeans/*pkl'
+main_path = '/dades/LIDAR/towers_detection/datasets/kmeans_pc/towers/*pkl'
 list_f = glob.glob(main_path)
 random.shuffle(list_f)
 print(len(list_f))

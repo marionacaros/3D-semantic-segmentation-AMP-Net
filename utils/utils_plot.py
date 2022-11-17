@@ -1,5 +1,7 @@
 import matplotlib.pyplot as plt
 import os
+from matplotlib.colors import ListedColormap
+import numpy as np
 
 
 def plot_losses(train_loss, test_loss, save_to_file=None):
@@ -94,20 +96,26 @@ def plot_3d_sequence_tensorboard(pc, writer_tensorboard, filename, i_w, title, n
     labels = labels.numpy().astype(int)
     cmap = plt.cm.get_cmap('winter')
     sc = ax.scatter(pc[:, 0], pc[:, 1], pc[:, 2], c=labels, s=10, marker='o', cmap=cmap.reversed(), vmin=0, vmax=1)
-    # plt.colorbar(sc)
     tag = str(n_clusters) + 'k-means_3Dxy' + filename.split('/')[-1]
     plt.title(title)
     writer_tensorboard.add_figure(tag, plt.gcf(), i_w)
 
 
 def plot_pc_tensorboard(pc, labels, writer_tensorboard, tag, step):
-    ax = plt.axes(projection='3d', xlim=(0, 1), ylim=(0, 1), zlim=(0, 0.2))
+    ax = plt.axes(projection='3d', xlim=(0, 1), ylim=(0, 1), zlim=(0, 0.3))
     # convert array of booleans to array of integers
     labels = labels.numpy().astype(int)
-    cmap = plt.cm.get_cmap('Viridis')  # winter
-    sc = ax.scatter(pc[:, 0], pc[:, 1], pc[:, 2], c=labels, s=10, marker='o', cmap=cmap.reversed(), vmin=0, vmax=max(labels))
+    viridisBig = plt.cm.get_cmap('viridis', 10)
+    newcolors = viridisBig(np.linspace(0, 0.75, 6))
+    newcolors[:1, :] = np.array([255/256, 165/256, 0/256, 1])  # orange
+    newcolors[3:4, :] = np.array([102/256, 256/256, 178/256, 1])  # light green
+    cmap = ListedColormap(newcolors)
+    sc = ax.scatter(pc[:, 0], pc[:, 1], pc[:, 2], c=labels, s=7, marker='o', cmap=cmap, vmin=0, vmax=5)
+    plt.colorbar(sc, fraction=0.02, pad=0.1)
     plt.title('point cloud' + str(len(pc)))
-    writer_tensorboard.add_figure(tag, plt.gcf(), global_step=step)
+    fig = plt.gcf()
+    fig.set_dpi(100)
+    writer_tensorboard.add_figure(tag, fig, global_step=step)
 
 
 def plot_pc_tensorboard_point_labels(pc, writer_tensorboard, tag, step):

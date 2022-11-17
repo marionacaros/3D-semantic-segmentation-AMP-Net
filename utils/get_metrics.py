@@ -3,20 +3,16 @@ import torch
 import numpy as np
 
 
-def get_iou_tower(preds, targets):
+def get_iou_obj(preds: torch.LongTensor, targets: torch.LongTensor, label: int = 1):
     pc_preds = preds.view(-1)
     targets = targets.view(-1)
     # get metrics
     corrects = torch.eq(torch.LongTensor(pc_preds), targets)
-    # all_neg = (np.array(targets.view(-1)) == np.zeros(len(targets))).sum()
-    all_positive = (np.array(targets) == np.ones(len(targets))).sum()  # TP + FN
-    detected_positive = (np.array(pc_preds) == np.ones(len(targets)))
-    # detected_negative = (np.array(pc_preds) == np.zeros(len(targets)))
+    gt_positive = (np.array(targets) == np.ones(len(targets)) * label).sum()  # TP + FN
+    detected_positive = (np.array(pc_preds) == np.ones(len(targets)) * label)
     tp = np.logical_and(corrects, detected_positive).sum()
-    # tn = np.logical_and(corrects, detected_negative).sum()
     fp = np.array(detected_positive).sum() - tp
-    # fn = np.array(detected_negative).sum() - tn
-    iou_tower = tp / (all_positive + fp)
+    iou_tower = tp / (gt_positive + fp)
     # accuracy = (corrects.sum() / (batch_size * pc_w.shape[3] * n_points))
 
     return iou_tower

@@ -6,6 +6,7 @@ import glob
 from progressbar import progressbar
 import laspy
 import pickle
+from matplotlib.colors import ListedColormap, LinearSegmentedColormap
 
 
 def rotatePoint(angle, x, y):
@@ -25,6 +26,27 @@ def get_max(files_path):
         hag = data_f.HeightAboveGround
         if hag.max() > max_z:
             max_z = hag.max()
+
+
+def plot_3d_sequence_tensorboard(pc, writer_tensorboard, filename, i_w, title, n_clusters=None):
+    ax = plt.axes(projection='3d', xlim=(0, 1), ylim=(0, 1))
+    # get tower points
+    # labels = pc[:, 3] == 15
+    labels = pc[:, 3]
+
+    # convert array of booleans to array of integers
+    labels = labels.numpy().astype(int)
+    viridisBig = plt.cm.get_cmap('viridis',150)
+    cmap = ListedColormap(viridisBig(np.linspace(0.10, 1, 150)))
+    sc = ax.scatter(pc[:, 0], pc[:, 1], pc[:, 2], c=labels, s=10, marker='o', cmap=cmap.reversed(), vmin=0, vmax=15)
+    plt.colorbar(sc, fraction=0.046, pad=0.1)
+    tag = str(n_clusters) + 'k-means_3Dxy' + filename.split('/')[-1]
+    plt.title(title)
+    directory = '/home/m.caros/work/objectDetection/figures/kmeans_seq/'
+    name = filename + '_' + str(i_w) + '.png'
+    plt.savefig(directory + name, bbox_inches='tight', dpi=100)
+
+    writer_tensorboard.add_figure(tag, plt.gcf(), i_w)
 
 
 def plot_class_points(inFile, fileName, selClass, save_plot=False, point_size=40, save_dir='figures/'):

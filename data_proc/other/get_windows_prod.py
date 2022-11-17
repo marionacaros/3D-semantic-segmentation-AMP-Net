@@ -1,5 +1,4 @@
 import laspy
-from utils.utils import *
 import logging
 import time
 from alive_progress import alive_bar

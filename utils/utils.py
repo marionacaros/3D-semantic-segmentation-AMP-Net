@@ -5,6 +5,16 @@ from k_means_constrained import KMeansConstrained
 from progressbar import progressbar
 
 
+def rm_padding(preds, targets):
+    # targets = targets.view(-1)
+    # preds = preds.view(-1)
+    mask = targets != -1
+    targets = targets[mask]
+    preds = preds[mask]
+
+    return preds, targets, mask
+
+
 def transform_2d_img_to_point_cloud(img):
     img_array = np.asarray(img)
     indices = np.argwhere(img_array > 127)

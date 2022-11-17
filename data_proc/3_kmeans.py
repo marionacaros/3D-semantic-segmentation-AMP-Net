@@ -4,13 +4,12 @@ import pickle
 import time
 from k_means_constrained import KMeansConstrained
 import itertools
-from utils.utils import plot_3d_sequence_tensorboard
 import torch
 import datetime
 from torch.utils.tensorboard import SummaryWriter
 
 
-def split_kmeans(in_pc, n_points, plot=False, writer_tensorboard=None, filename=''):
+def split_kmeans(in_pc, n_points, max_clusters=5, plot=False, writer_tensorboard=None, filename=''):
     """ split point cloud in windows of fixed size (n_points) with k-means
     Fill empty windows with duplicate points of previous windows
     Number of points must be multiple of n_points, so points left over are removed
@@ -30,11 +29,16 @@ def split_kmeans(in_pc, n_points, plot=False, writer_tensorboard=None, filename=
         # tensor for points per window
         pc_w = torch.FloatTensor()
 
+        # K-means clustering
+        k_clusters = int(np.floor(in_pc.shape[0] / n_points))
+        if k_clusters > max_clusters:
+            k_clusters = max_clusters
+            in_pc = in_pc[:n_points * max_clusters, :]
+
         if in_pc.shape[0] % n_points != 0:
             # Number of points must be multiple of n_points, so points left over are removed
             in_pc = in_pc[:n_points * (in_pc.shape[0] // n_points), :]
-        # K-means clustering
-        k_clusters = int(np.floor(in_pc.shape[0] / n_points))
+
         clf = KMeansConstrained(n_clusters=k_clusters, size_min=n_points, size_max=n_points)
         i_f = [0, 1, 9]  # x,y, NDVI
         i_cluster = clf.fit_predict(in_pc[:, i_f].numpy())  # array of ints -> indices to each of the windows
@@ -43,7 +47,7 @@ def split_kmeans(in_pc, n_points, plot=False, writer_tensorboard=None, filename=
         tuple_cluster_points = list(zip(i_cluster, in_pc))
         cluster_lists = [list(item[1]) for item in
                          itertools.groupby(sorted(tuple_cluster_points, key=lambda x: x[0]), key=lambda x: x[0])]
-        if plot:
+        if plot and k_clusters>1:
             plot_3d_sequence_tensorboard(in_pc, writer_tensorboard, filename, i_w=0, title='original',
                                          n_clusters=k_clusters)
 
@@ -51,7 +55,7 @@ def split_kmeans(in_pc, n_points, plot=False, writer_tensorboard=None, filename=
             pc_features_cluster = torch.stack([feat for (i_c, feat) in cluster])  # [2048, 11]
             pc_w = torch.cat((pc_w, pc_features_cluster.unsqueeze(2)), 2)  # [2048, 11, 1]
 
-            if plot:
+            if plot and k_clusters>1:
                 plot_3d_sequence_tensorboard(pc_features_cluster, writer_tensorboard, filename,
                                              i_w=cluster[0][0] + 1,
                                              title='cluster ' + str(cluster[0][0]), n_clusters=k_clusters)
@@ -70,8 +74,9 @@ if __name__ == '__main__':
     # Tensorboard location and plot names
     now = datetime.datetime.now()
     location = 'pointNet/runs/tower_detec/rnn/'
-    writer = SummaryWriter(location + now.strftime("%m-%d-%H:%M") + 'rnn' )
-    files = glob.glob(os.path.join(i_path, 'tower*pkl'))
+    writer = SummaryWriter(location + now.strftime("%m-%d-%H:%M") + 'rnn')
+    files = glob.glob(os.path.join(i_path, 'tower_*pkl'))
+    np.random.shuffle(files)
 
     for file in progressbar(files):
         fileName = file.split('/')[-1]
@@ -80,7 +85,7 @@ if __name__ == '__main__':
 
         pc_w = split_kmeans(torch.Tensor(pc), n_points=N_POINTS, plot=True, writer_tensorboard=writer,
                             filename=fileName)
-        o_path = '/dades/LIDAR/towers_detection/datasets/new_kmeans/'
+        o_path = '/dades/LIDAR/towers_detection/datasets/test_seq/'
         torch.save(pc_w, o_path + 'kmeans_' + fileName)
 
     print("--- TOTAL TIME: %s h ---" % (round((time.time() - start_time) / 3600, 3)))
