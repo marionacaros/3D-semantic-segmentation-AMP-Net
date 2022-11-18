@@ -68,8 +68,8 @@ def split_dataset_windows(DATASET_NAME, LAS_PATH, SEL_CLASS, min_p=10, w_size=[4
 
     # -------------------------------------------------- 4 -------------------------------------------------------
     # Store all points != selClass as LAS
-    logging.info('----------------- 4 -----------------')
-    get_points_without_object(SEL_CLASS, w_size=W_SIZE, path=LAS_PATH, center_t=dic_center_towers, dataset=DATASET_NAME)
+    # logging.info('----------------- 4 -----------------')
+    # get_points_without_object(SEL_CLASS, w_size=W_SIZE, path=LAS_PATH, center_t=dic_center_towers, dataset=DATASET_NAME)
 
     print("--- TOTAL TIME: %s h ---" % (round((time.time() - start_time) / 3600, 3)))
     # ------------------------------------------------------------------------------------------------------------
@@ -200,13 +200,12 @@ def get_context(dic_center_obj, w_size=[40, 40], path='', dataset='', min_p=10, 
                         # First iteration is stored without rotation or translation
                         if ix != 0 and data_augm > 0:
                             # get probabilities of variation for data augmentation
-                            p_xpos = random.randint(0, 10)
-                            p_xneg = random.randint(0, 10)
-                            p_ypos = random.randint(0, 10)
-                            p_yneg = random.randint(0, 10)
+
+                            p_x = random.randint(0, 25)
+                            p_y = random.randint(0, 25)
                             # move center of window
-                            x = dict_w_c[w][0] + (p_xpos - p_xneg)
-                            y = dict_w_c[w][1] + (p_ypos - p_yneg)
+                            x = dict_w_c[w][0] + random.choice([-1, 1]) * p_x
+                            y = dict_w_c[w][1] + random.choice([-1, 1]) * p_y
                             # rotate points
                             pc = coords_pc_class.copy()
                             angle = random.randrange(360)
@@ -418,17 +417,16 @@ if __name__ == '__main__':
                         help='output folder where processed files are stored')
     parser.add_argument('--min_p', type=int, default=10, help='minimum number of points in object')
     parser.add_argument('--sel_class', type=int, default=15, help='selected class')
-    parser.add_argument('--datasets', type=list, default=['CAT3', 'RIBERA', 'BDN'], help='list of datasets names')
+    parser.add_argument('--datasets', type=list, default=['CAT3'], help='list of datasets names')
     parser.add_argument('--LAS_files_path', type=str)
-    parser.add_argument('--w_size', default=[40, 40])
-    parser.add_argument('--data_augm', default=5)
+    parser.add_argument('--w_size', default=[80, 80])
+    parser.add_argument('--data_augm', default=10)
 
     args = parser.parse_args()
 
     SEL_CLASS = args.sel_class
     # 15 corresponds to power transmission tower
     # 18 corresponds to other towers
-    DATASET_NAME = args.dataset_name
     LAS_files_path = args.LAS_files_path
 
     # Our Datasets
