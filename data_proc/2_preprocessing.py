@@ -241,7 +241,7 @@ def constrained_sampling(pc, n_points, TH_1=3.0, TH_2=8.0, counters={}):
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--out_path', type=str, default='/dades/LIDAR/towers_detection/datasets/pc_towers_40x40_10p',
+    parser.add_argument('--out_path', type=str, default='/dades/LIDAR/towers_detection/datasets/pc_towers_80x80_10p',
                         help='output folder where processed files are stored')
     parser.add_argument('--in_path', default='/dades/LIDAR/towers_detection/LAS_data_windows/')
     parser.add_argument('--datasets', type=list, default=['RIBERA'], help='list of datasets names')
@@ -252,7 +252,7 @@ if __name__ == '__main__':
     start_time = time.time()
 
     for DATASET in args.datasets:
-        paths = [args.in_path + DATASET + '/w_towers_40x40_10p']
+        paths = [args.in_path + DATASET + '/w_towers_80x80_10p']
                  #args.in_path + DATASET + '/w_no_towers_40x40']
 
         for input_path in paths:

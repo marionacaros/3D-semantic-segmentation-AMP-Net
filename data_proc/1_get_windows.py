@@ -201,8 +201,8 @@ def get_context(dic_center_obj, w_size=[40, 40], path='', dataset='', min_p=10, 
                         if ix != 0 and data_augm > 0:
                             # get probabilities of variation for data augmentation
 
-                            p_x = random.randint(0, 25)
-                            p_y = random.randint(0, 25)
+                            p_x = random.randint(10, 20)
+                            p_y = random.randint(10, 20)
                             # move center of window
                             x = dict_w_c[w][0] + random.choice([-1, 1]) * p_x
                             y = dict_w_c[w][1] + random.choice([-1, 1]) * p_y
@@ -417,7 +417,7 @@ if __name__ == '__main__':
                         help='output folder where processed files are stored')
     parser.add_argument('--min_p', type=int, default=10, help='minimum number of points in object')
     parser.add_argument('--sel_class', type=int, default=15, help='selected class')
-    parser.add_argument('--datasets', type=list, default=['CAT3'], help='list of datasets names')
+    parser.add_argument('--datasets', type=list, default=['CAT3', 'BDN'], help='list of datasets names')
     parser.add_argument('--LAS_files_path', type=str)
     parser.add_argument('--w_size', default=[80, 80])
     parser.add_argument('--data_augm', default=10)

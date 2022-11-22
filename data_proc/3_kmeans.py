@@ -67,7 +67,7 @@ def split_kmeans(in_pc, n_points, max_clusters=5, plot=False, writer_tensorboard
 
 if __name__ == '__main__':
     logging.info(f"3. K-means clustering")
-    i_path = '/dades/LIDAR/towers_detection/datasets/pc_towers_40x40_10p/normalized_2048'
+    i_path = '/dades/LIDAR/towers_detection/datasets/pc_towers_80x80_10p/normalized_2048'
     N_POINTS = 2048
     start_time = time.time()
 
@@ -83,9 +83,14 @@ if __name__ == '__main__':
         with open(file, 'rb') as f:
             pc = pickle.load(f).astype(np.float32)
 
-        pc_w = split_kmeans(torch.Tensor(pc), n_points=N_POINTS, plot=True, writer_tensorboard=writer,
+        pc_w = split_kmeans(torch.Tensor(pc),
+                            n_points=N_POINTS,
+                            max_clusters=5,
+                            plot=True,
+                            writer_tensorboard=writer,
                             filename=fileName)
-        o_path = '/dades/LIDAR/towers_detection/datasets/test_seq/'
+
+        o_path = '/dades/LIDAR/towers_detection/datasets/kmeans_80x80/'
         torch.save(pc_w, o_path + 'kmeans_' + fileName)
 
     print("--- TOTAL TIME: %s h ---" % (round((time.time() - start_time) / 3600, 3)))
