@@ -6,8 +6,6 @@ from progressbar import progressbar
 
 
 def rm_padding(preds, targets):
-    # targets = targets.view(-1)
-    # preds = preds.view(-1)
     mask = targets != -1
     targets = targets[mask]
     preds = preds[mask]
@@ -415,14 +413,13 @@ def split4cls_rdm(points, n_points=2048, targets=[], device='cuda', duplicate=Tr
     return pc_w, targets_w
 
 
-def save_checkpoint_rnn(name, task, epoch, epochs_since_improvement, rnn_model, attn_model, optimizer_rnn,
-                        optimizer_att,
-                        accuracy, batch_size, learning_rate, number_of_points, weighing_method):
+def save_checkpoint_segmen_model(name, task, epoch, epochs_since_improvement, base_pointnet, segmen_model, opt_pointnet,
+                                 opt_segmen, accuracy, batch_size, learning_rate, number_of_points, weighing_method):
     state = {
-        'rnn_model': rnn_model.state_dict(),
-        'attn_model': attn_model.state_dict(),
-        'optimizer_rnn': optimizer_rnn.state_dict(),
-        'optimizer_att': optimizer_att.state_dict(),
+        'base_pointnet': base_pointnet.state_dict(),
+        'segmen_net': segmen_model.state_dict(),
+        'opt_pointnet': opt_pointnet.state_dict(),
+        'opt_segmen': opt_segmen.state_dict(),
         'task': task,
         'batch_size': batch_size,
         'lr': learning_rate,
@@ -430,7 +427,6 @@ def save_checkpoint_rnn(name, task, epoch, epochs_since_improvement, rnn_model, 
         'epoch': epoch,
         'epochs_since_improvement': epochs_since_improvement,
         'accuracy': accuracy,
-        'weighing_method': weighing_method
     }
     filename = 'checkpoint_' + name + '.pth'
 

@@ -12,15 +12,15 @@ def get_iou_obj(preds: torch.LongTensor, targets: torch.LongTensor, label: int =
     detected_positive = (np.array(pc_preds) == np.ones(len(targets)) * label)
     tp = np.logical_and(corrects, detected_positive).sum()
     fp = np.array(detected_positive).sum() - tp
-    iou_tower = tp / (gt_positive + fp)
+    iou_obj = tp / (gt_positive + fp)
     # accuracy = (corrects.sum() / (batch_size * pc_w.shape[3] * n_points))
 
-    return iou_tower
+    return iou_obj.item()
 
 
-def get_accuracy(preds, targets, metrics, task, c_weights):
-    corrects = torch.eq(preds, targets)
-    metrics['accuracy'] = (corrects.sum() / len(corrects))
+def get_accuracy(preds, targets, metrics, task, c_weights=None):
+    corrects = torch.eq(preds.view(-1), targets.view(-1))
+    metrics['accuracy'] = (corrects.sum() / len(corrects)).item()
     metrics['accuracy_w'] = None
 
     if task == 'classification':

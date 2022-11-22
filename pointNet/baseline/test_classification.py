@@ -6,10 +6,13 @@ from pointNet.model.light_pointnet_IGBVI import ClassificationPointNet_IGBVI
 # from model.pointnet import *
 import logging
 import json
-
+import os
+import numpy as np
+import torch
 from sklearn.metrics import precision_recall_curve
 from sklearn.metrics import f1_score
 from sklearn.metrics import auc
+from progressbar import progressbar
 
 if torch.cuda.is_available():
     logging.info(f"cuda available")
@@ -35,9 +38,9 @@ def test(dataset_folder,
 
     # Initialize dataset
     test_dataset = LidarDataset(dataset_folder=dataset_folder,
-                                task='classification', number_of_points=n_points,
-                                files=test_files,
-                                fixed_num_points=False)
+                                      task='classification', number_of_points=n_points,
+                                      files=test_files,
+                                      fixed_num_points=False)
 
     logging.info(f'Tower PC in test: {test_dataset.len_towers}')
     logging.info(f'Landscape PC in test: {test_dataset.len_landscape}')

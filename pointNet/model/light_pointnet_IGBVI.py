@@ -143,13 +143,12 @@ class SegmentationPointNet_IGBVI(nn.Module):
 
     def forward(self, x):
         local_global_features, feature_transform = self.base_pointnet(x)
-        x = local_global_features
+        x = local_global_features  # [b, 2048, 320]
         x = x.transpose(2, 1)
         x = F.relu(self.bn_1(self.conv_1(x)))
         x = F.relu(self.bn_2(self.conv_2(x)))
         x = F.relu(self.bn_3(self.conv_3(x)))
 
-        x = self.conv_4(x)
-        x = x.transpose(2, 1)
+        x = self.conv_4(x)  # [b, classes, 2048]
 
-        return F.log_softmax(x, dim=-1), feature_transform
+        return x, feature_transform

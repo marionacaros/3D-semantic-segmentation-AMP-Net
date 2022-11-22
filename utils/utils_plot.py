@@ -89,8 +89,8 @@ def plot_hist(points, rdm_num):
     plt.close()
 
 
-def plot_3d_sequence_tensorboard(pc, writer_tensorboard, filename, i_w, title, n_clusters=None):
-    ax = plt.axes(projection='3d', xlim=(0, 1), ylim=(0, 1), zlim=(0, 0.2))
+def plot_kmens_sequence_tensorboard(pc, writer_tensorboard, filename, i_w, title, n_clusters=None):
+    ax = plt.axes(projection='3d', xlim=(0, 1), ylim=(0, 1), zlim=(0, 0.3))
     labels = pc[:, 3] == 15
     # convert array of booleans to array of integers
     labels = labels.numpy().astype(int)
@@ -103,7 +103,6 @@ def plot_3d_sequence_tensorboard(pc, writer_tensorboard, filename, i_w, title, n
 
 def plot_pc_tensorboard(pc, labels, writer_tensorboard, tag, step):
     ax = plt.axes(projection='3d', xlim=(0, 1), ylim=(0, 1), zlim=(0, 0.3))
-    # convert array of booleans to array of integers
     labels = labels.numpy().astype(int)
     viridisBig = plt.cm.get_cmap('viridis', 10)
     newcolors = viridisBig(np.linspace(0, 0.75, 6))
@@ -118,14 +117,22 @@ def plot_pc_tensorboard(pc, labels, writer_tensorboard, tag, step):
     writer_tensorboard.add_figure(tag, fig, global_step=step)
 
 
-def plot_pc_tensorboard_point_labels(pc, writer_tensorboard, tag, step):
-    ax = plt.axes(projection='3d', xlim=(0, 1), ylim=(0, 1), zlim=(0, 0.2))
-    # convert array of booleans to array of integers
-    labels = pc[:, 3] == 15
-    cmap = plt.cm.get_cmap('winter')
-    sc = ax.scatter(pc[:, 0], pc[:, 1], pc[:, 2], c=labels, s=10, marker='o', cmap=cmap.reversed(), vmin=0, vmax=1)
-    # plt.title(title)
-    writer_tensorboard.add_figure(tag, plt.gcf(), global_step=step)
+def plot_pointcloud_with_labels(pc, labels, iou_tower, name, path_plot=''):
+
+    ax = plt.axes(projection='3d', xlim=(0, 1), ylim=(0, 1), zlim=(0, max(pc[:, 2])))
+    labels = labels.numpy().astype(int)
+    viridisBig = plt.cm.get_cmap('viridis', 10)
+    newcolors = viridisBig(np.linspace(0, 0.75, 6))
+    newcolors[:1, :] = np.array([255 / 256, 165 / 256, 0 / 256, 1])  # orange
+    newcolors[3:4, :] = np.array([102 / 256, 256 / 256, 178 / 256, 1])  # light green
+    cmap = ListedColormap(newcolors)
+    sc = ax.scatter(pc[:, 0], pc[:, 1], pc[:, 2], c=labels, s=7, marker='o', cmap=cmap, vmin=0, vmax=5)
+    plt.colorbar(sc, fraction=0.02, pad=0.1)
+    plt.title('Point cloud - ' + str(len(pc)) + ' p -' + ' IoU tower: ' + str(iou_tower))
+    fig = plt.gcf()
+    fig.set_dpi(100)
+    if path_plot:
+        plt.savefig(os.path.join(path_plot, name))
 
 
 def plot_2d_sequence_tensorboard(pc, writer_tensorboard, filename, i_w):

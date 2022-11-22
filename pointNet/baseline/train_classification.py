@@ -58,15 +58,15 @@ def train(
 
     # Initialize datasets
     train_dataset = LidarDataset(dataset_folder=dataset_folder,
-                                 task='classification', number_of_points=n_points,
-                                 files=train_files,
-                                 fixed_num_points=True,
-                                 c_sample=c_sample)
+                                       task='classification', number_of_points=n_points,
+                                       files=train_files,
+                                       fixed_num_points=True,
+                                       c_sample=c_sample)
     val_dataset = LidarDataset(dataset_folder=dataset_folder,
-                               task='classification', number_of_points=n_points,
-                               files=val_files,
-                               fixed_num_points=True,
-                               c_sample=c_sample)
+                                     task='classification', number_of_points=n_points,
+                                     files=val_files,
+                                     fixed_num_points=True,
+                                     c_sample=c_sample)
 
     logging.info(f'Towers PC in train: {train_dataset.len_towers}')
     logging.info(f'Landscape PC in train: {train_dataset.len_landscape}')

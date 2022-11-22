@@ -3,7 +3,7 @@ import argparse
 import time
 from torch.utils.data import random_split
 import torch.nn.functional as F
-from pointNet.datasets import LidarDataset
+from pointNet.datasets import LidarKmeansDataset4Train
 from pointNet.model.pointnetRNN import GRUPointNet, RNNSegmentationPointNet
 import logging
 import warnings
@@ -39,10 +39,10 @@ def test(dataset_folder,
     writer_test = None
 
     # Initialize dataset
-    test_dataset = LidarDataset(dataset_folder=dataset_folder,
-                                task='segmentation', number_of_points=n_points,
-                                files=test_files,
-                                fixed_num_points=False)
+    test_dataset = LidarKmeansDataset4Train(dataset_folder=dataset_folder,
+                                            task='segmentation', number_of_points=n_points,
+                                            files=test_files,
+                                            fixed_num_points=False)
 
     logging.info(f'Tower PC in test: {test_dataset.len_towers}')
     logging.info(f'Landscape PC in test: {test_dataset.len_landscape}')

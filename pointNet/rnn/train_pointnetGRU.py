@@ -5,7 +5,7 @@ import time
 from torch.utils.data import random_split
 from torch.utils.tensorboard import SummaryWriter
 from torchsummary import summary
-from pointNet.datasets import LidarDataset
+from pointNet.datasets import LidarKmeansDataset4Train
 from pointNet.model.pointnetRNN import BasePointNet, SegmentationWithGRU, ClassificationFromGRU
 import datetime
 import warnings
@@ -50,7 +50,7 @@ def train_gru(task: str,
 
     # Tensorboard location and plot names
     now = datetime.datetime.now()
-    location = 'pointNet/runs/tower_detec/rnn/'  # + str(n_points) + 'p/'
+    location = 'pointNet/runs/tower_detec/segmentation/'  # + str(n_points) + 'p/'
     # if not os.path.isdir(output_folder):
     #     os.mkdir(output_folder)
 
@@ -66,7 +66,7 @@ def train_gru(task: str,
         val_files = f.read().splitlines()
     print(f'Dataset folder: {dataset_folder}')
 
-    NAME = 'GRUg' + str(GLOBAL_FEAT_SIZE) + 'h' + str(HIDDEN_SIZE)
+    NAME = 'GRUg' + str(GLOBAL_FEAT_SIZE) + 'NOCABLES' #'h' + str(HIDDEN_SIZE)
 
     # Datasets train / val / test
     if task == 'classification':
@@ -84,20 +84,20 @@ def train_gru(task: str,
         collate_fn = collate_seq4segmen_padd
 
     # Initialize datasets
-    train_dataset = LidarDataset(dataset_folder=dataset_folder,
-                                 task=task,
-                                 number_of_points=n_points,
-                                 number_of_windows=n_windows,
-                                 files=train_files,
-                                 fixed_num_points=c_sample,
-                                 c_sample=False)
-    val_dataset = LidarDataset(dataset_folder=dataset_folder,
-                               task=task,
-                               number_of_points=n_points,
-                               number_of_windows=n_windows,
-                               files=val_files,
-                               fixed_num_points=c_sample,
-                               c_sample=False)
+    train_dataset = LidarKmeansDataset4Train(dataset_folder=dataset_folder,
+                                             task=task,
+                                             number_of_points=n_points,
+                                             number_of_windows=n_windows,
+                                             files=train_files,
+                                             fixed_num_points=c_sample,
+                                             c_sample=False)
+    val_dataset = LidarKmeansDataset4Train(dataset_folder=dataset_folder,
+                                           task=task,
+                                           number_of_points=n_points,
+                                           number_of_windows=n_windows,
+                                           files=val_files,
+                                           fixed_num_points=c_sample,
+                                           c_sample=False)
 
     print(f'Towers PC in train: {train_dataset.len_towers}')
     print(f'Landscape PC in train: {train_dataset.len_landscape}')
@@ -152,7 +152,7 @@ def train_gru(task: str,
                                                        train_dataset.len_towers + val_dataset.len_towers],
                                       beta=beta).to(device)
 
-    # weighted loss
+    # loss
     ce_loss = torch.nn.CrossEntropyLoss(reduction='mean', ignore_index=-1)
     # optimizers
     optimizer_pointnet = optim.Adam(pointnet.parameters(), lr=learning_rate)
@@ -213,12 +213,12 @@ def train_gru(task: str,
         }
         last_epoch = -1
 
-        if epochs_since_improvement == 5:
+        if epochs_since_improvement == 10:
             adjust_learning_rate(optimizer_pointnet, 0.5)
             adjust_learning_rate(optimizer_pred, 0.5)
-        elif epoch == 15:
-            adjust_learning_rate(optimizer_pointnet, 0.5)
-            adjust_learning_rate(optimizer_pred, 0.5)
+        # elif epoch == 15:
+        #     adjust_learning_rate(optimizer_pointnet, 0.5)
+        #     adjust_learning_rate(optimizer_pred, 0.5)
 
         # --------------------------------------------- train loop ---------------------------------------------
         for data in train_dataloader:
@@ -240,10 +240,10 @@ def train_gru(task: str,
                 # 5 -> high vegetation
                 iou['bckg_train'].append(get_iou_obj(targets, preds, 0))
                 iou['tower_train'].append(get_iou_obj(targets, preds, 1))
-                iou['cables_train'].append(get_iou_obj(targets, preds, 2))
-                iou['low_veg_train'].append(get_iou_obj(targets, preds, 3))
-                iou['med_veg_train'].append(get_iou_obj(targets, preds, 4))
-                iou['high_veg_train'].append(get_iou_obj(targets, preds, 5))
+                # iou['cables_train'].append(get_iou_obj(targets, preds, 2))
+                iou['low_veg_train'].append(get_iou_obj(targets, preds, 2))
+                iou['med_veg_train'].append(get_iou_obj(targets, preds, 3))
+                iou['high_veg_train'].append(get_iou_obj(targets, preds, 4))
 
             # tensorboard
             ce_train_loss.append(metrics['ce_loss'].cpu().item())
@@ -267,10 +267,10 @@ def train_gru(task: str,
                 if task == 'segmentation':
                     iou['bckg_val'].append(get_iou_obj(targets, preds, 0))
                     iou['tower_val'].append(get_iou_obj(targets, preds, 1))
-                    iou['cables_val'].append(get_iou_obj(targets, preds, 2))
-                    iou['low_veg_val'].append(get_iou_obj(targets, preds, 3))
-                    iou['med_veg_val'].append(get_iou_obj(targets, preds, 4))
-                    iou['high_veg_val'].append(get_iou_obj(targets, preds, 5))
+                    # iou['cables_val'].append(get_iou_obj(targets, preds, 2))
+                    iou['low_veg_val'].append(get_iou_obj(targets, preds, 2))
+                    iou['med_veg_val'].append(get_iou_obj(targets, preds, 3))
+                    iou['high_veg_val'].append(get_iou_obj(targets, preds, 4))
 
                 # tensorboard
                 epoch_val_loss.append(metrics['loss'].cpu().item())  # in val ce_loss and total_loss are the same
@@ -323,13 +323,13 @@ def train_gru(task: str,
         if np.mean(epoch_val_loss) < best_vloss:
             # Save checkpoint
             if task == 'classification':
-                name = now.strftime("%m-%d-%H:%M") + '_clsGRU' + NAME
+                name = now.strftime("%m-%d-%H:%M") + NAME
             elif task == 'segmentation':
-                name = now.strftime("%m-%d-%H:%M") + '_segGRU' + NAME
-            save_checkpoint_rnn(name, task, epoch, epochs_since_improvement, pointnet, pred_net, optimizer_pointnet,
-                                optimizer_pred,
-                                metrics['accuracy'],
-                                batch_size, learning_rate, n_points, weighing_method)
+                name = now.strftime("%m-%d-%H:%M") + NAME
+            save_checkpoint_segmen_model(name, task, epoch, epochs_since_improvement, pointnet, pred_net,
+                                         optimizer_pointnet, optimizer_pred,
+                                         metrics['accuracy'],
+                                         batch_size, learning_rate, n_points, weighing_method)
             epochs_since_improvement = 0
             best_vloss = np.mean(epoch_val_loss)
 
@@ -348,7 +348,7 @@ def train_loop(data, optimizer_rnn, optimizer_pred, ce_loss, pointnet, gru_model
                c_weights=torch.Tensor(), epoch=0, last_epoch=0, first_batch_val=False):
     """
 
-    :param data: tuple with (points, targets, filenames, lengths, len_w)
+    :param data: tuple with (points, targets, filenames)
     :param optimizer_rnn:
     :param optimizer_pred:
     :param ce_loss: CrossEntropy loss
@@ -406,8 +406,6 @@ def train_loop(data, optimizer_rnn, optimizer_pred, ce_loss, pointnet, gru_model
         gl_feats = torch.cat((gl_feats, global_feat), dim=1)
 
         if task == 'segmentation':
-            # we get labels of points instead of "targets" because there is an error if we concatenate w of targets
-            # labels = (in_points[:, :, 3] == 15).type(torch.LongTensor).to(device)
             targets_pc = torch.cat((targets_pc, targets[:, :, w]), dim=1)
             pc = torch.cat((pc, in_points.cpu()), dim=1)
 
@@ -427,14 +425,14 @@ def train_loop(data, optimizer_rnn, optimizer_pred, ce_loss, pointnet, gru_model
     preds = torch.LongTensor(probs.data.max(1)[1])
 
     # plot predictions in Tensorboard
-    if epoch >= 0:
-        if epoch != last_epoch or first_batch_val == True:
-            preds_plot, targets_plot, mask = rm_padding(preds[0, :].cpu(), targets_pc[0, :])
-            # Tensorboard
-            plot_pc_tensorboard(pc[0, mask, :], targets_plot, w_tensorboard, 'b0_plot_targets', step=epoch)
-            plot_pc_tensorboard(pc[0, mask, :], preds_plot, w_tensorboard, 'b0_plot_predictions', step=epoch)
-
-            last_epoch = epoch
+    # if epoch >= 0:
+    #     if epoch != last_epoch or first_batch_val == True:
+    #         preds_plot, targets_plot, mask = rm_padding(preds[0, :].cpu(), targets_pc[0, :])
+    #         # Tensorboard
+    #         plot_pc_tensorboard(pc[0, mask, :], targets_plot, w_tensorboard, 'b0_plot_targets', step=epoch)
+    #         plot_pc_tensorboard(pc[0, mask, :], preds_plot, w_tensorboard, 'b0_plot_predictions', step=epoch)
+    #
+    #         last_epoch = epoch
 
     # compute regularization loss
     identity = torch.eye(feat_transform.shape[-1]).to(device)  # [64, 64]
@@ -457,7 +455,7 @@ if __name__ == '__main__':
     parser.add_argument('task', type=str, choices=['classification', 'segmentation'], help='type of task')
     parser.add_argument('dataset_folder', type=str, help='path to the dataset folder')
     parser.add_argument('--path_list_files', type=str,
-                        default='train_test_files/RGBN_x10',
+                        default='train_test_files/RGBN_x10_kmeans',
                         help='output folder')
     parser.add_argument('--output_folder', type=str, default='pointNet/results', help='output folder')
     parser.add_argument('--number_of_points', type=int, default=2048, help='number of points per cloud')
