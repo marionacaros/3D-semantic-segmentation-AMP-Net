@@ -14,7 +14,7 @@ from functools import partial
 i_path = '/dades/LIDAR/towers_detection/datasets/pc_towers_80x80_10p/normalized_2048'
 o_path = '/dades/LIDAR/towers_detection/datasets/kmeans_80x80_w30/'
 N_POINTS = 2048
-NUM_CPUS = 16
+NUM_CPUS = 1
 
 
 def split_kmeans(file_path, n_points=2948, max_clusters=30, plot=False, writer_tensorboard=None):
@@ -102,11 +102,14 @@ if __name__ == '__main__':
     writer = SummaryWriter(location + now.strftime("%m-%d-%H:%M") + 'kmeans')
     files = glob.glob(os.path.join(i_path, 'tower_*pkl'))
 
+    # Sort list of files in directory by size
+    files = sorted(files, key=lambda x: os.stat(x).st_size)
+
     if not os.path.exists(o_path):
         # Create a new directory because it does not exist
         os.makedirs(o_path)
 
-    parallel_kmeans(files,
-                    NUM_CPUS)
+    # run k-means in parallel
+    parallel_kmeans(files, NUM_CPUS)
 
     print("--- TOTAL TIME: %s h ---" % (round((time.time() - start_time) / 3600, 3)))
