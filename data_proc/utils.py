@@ -38,7 +38,7 @@ def plot_3d_sequence_tensorboard(pc, writer_tensorboard, filename, i_w, title, n
     labels = labels.numpy().astype(int)
     viridisBig = plt.cm.get_cmap('viridis',150)
     cmap = ListedColormap(viridisBig(np.linspace(0.10, 1, 150)))
-    sc = ax.scatter(pc[:, 0], pc[:, 1], pc[:, 2], c=labels, s=10, marker='o', cmap=cmap.reversed(), vmin=0, vmax=15)
+    sc = ax.scatter(pc[:, 0], pc[:, 1], pc[:, 2], c=labels, s=5, marker='o', cmap=cmap.reversed(), vmin=0, vmax=15)
     plt.colorbar(sc, fraction=0.046, pad=0.1)
     tag = str(n_clusters) + 'k-means_3Dxy' + filename.split('/')[-1]
     plt.title(title)

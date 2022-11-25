@@ -1,16 +1,11 @@
-import logging
-import time
 from progressbar import progressbar
-import shutil
 import os
 import glob
-import pickle
-import numpy as np
 import random
 import json
 
 # --------------------------------- DATASET BLOCKS PARTITION  -----------------------------------------------
-main_path = '/dades/LIDAR/towers_detection/datasets/kmeans_pc/towers/*pkl'
+main_path = '/dades/LIDAR/towers_detection/datasets/kmeans_80x80/*pkl'
 list_f = glob.glob(main_path)
 random.shuffle(list_f)
 print(len(list_f))
@@ -23,97 +18,97 @@ bdn_blocks = {'train': [], 'test': [], 'val': []}
 l_tower_files = []
 l_landscape_files = []
 i = 0
-
-for file in progressbar(list_f):
-
-    # tower_CAT3_504678_w11.pkl
-    # tower_RIBERA_pt438656_w18.pkl
-    # dataset = file.split('_')[-3]
-    if 'tower_v0' in file:
-        i += 1
-        l_tower_files.append(file.split('_')[-2])
-    else:
-        l_landscape_files.append(file.split('_')[-2])
-
-l_tower_files = set(l_tower_files)
-l_landscape_files = list(set(l_landscape_files) - l_tower_files)
-
-print(f'num total towers: {i}')
-
-# towers
-for i, fileName in enumerate(l_tower_files):
-
-    # RIBERA
-    if 'pt' in fileName:
-        if fileName not in rib_blocks['test'] and len(rib_blocks['test']) < 3:
-            rib_blocks['test'].append(fileName)
-        elif len(rib_blocks['val']) < 3:
-            rib_blocks['val'].append(fileName)
-        else:
-            rib_blocks['train'].append(fileName)
-    # BDN
-    elif 'c' in fileName:
-        if fileName not in bdn_blocks['test'] and len(bdn_blocks['test']) < 1:
-            bdn_blocks['test'].append(fileName)
-        elif fileName not in bdn_blocks['val'] and len(bdn_blocks['val']) < 1:
-            bdn_blocks['val'].append(fileName)
-        else:
-            bdn_blocks['train'].append(fileName)
-    # CAT3
-    else:
-        if fileName not in cat3_blocks['test'] and len(cat3_blocks['test']) < 8:
-            cat3_blocks['test'].append(fileName)
-        elif len(cat3_blocks['val']) < 8:
-            cat3_blocks['val'].append(fileName)
-        else:
-            cat3_blocks['train'].append(fileName)
-
-print('len landscape files: ', len(l_landscape_files))
-k = 0
-
-# no towers files
-for fileName in l_landscape_files:
-    k += 1
-    # RIBERA
-    if 'pt' in fileName:
-        rib_blocks['train'].append(fileName)
-    # BDN
-    elif 'c' in fileName:
-        bdn_blocks['train'].append(fileName)
-    # CAT3
-    else:
-        cat3_blocks['train'].append(fileName)
-
-print('saved landscape files: ', k)
-print('TEST BLOCKS:')
-print('---CAT3---')
-print(cat3_blocks['test'])
-print('---Ribera---')
-print(rib_blocks['test'])
-print('---BDN---')
-print(bdn_blocks['test'])
-
-with open('dicts/dataset_blocks_partition_CAT3_towers_kmeans' + '.json', 'w') as f:
-    json.dump(cat3_blocks, f)
-with open('dicts/dataset_blocks_partition_RIBERA_towers_kmeans' + '.json', 'w') as f:
-    json.dump(rib_blocks, f)
-with open('dicts/dataset_blocks_partition_BDN_towers_kmeans' + '.json', 'w') as f:
-    json.dump(bdn_blocks, f)
+#
+# for file in progressbar(list_f):
+#
+#     # tower_CAT3_504678_w11.pkl
+#     # tower_RIBERA_pt438656_w18.pkl
+#     # dataset = file.split('_')[-3]
+#     if 'tower_v0' in file:
+#         i += 1
+#         l_tower_files.append(file.split('_')[-2])
+#     else:
+#         l_landscape_files.append(file.split('_')[-2])
+#
+# l_tower_files = set(l_tower_files)
+# l_landscape_files = list(set(l_landscape_files) - l_tower_files)
+#
+# print(f'num total towers: {i}')
+#
+# # towers
+# for i, fileName in enumerate(l_tower_files):
+#
+#     # RIBERA
+#     if 'pt' in fileName:
+#         if fileName not in rib_blocks['test'] and len(rib_blocks['test']) < 3:
+#             rib_blocks['test'].append(fileName)
+#         elif len(rib_blocks['val']) < 3:
+#             rib_blocks['val'].append(fileName)
+#         else:
+#             rib_blocks['train'].append(fileName)
+#     # BDN
+#     elif 'c' in fileName:
+#         if fileName not in bdn_blocks['test'] and len(bdn_blocks['test']) < 1:
+#             bdn_blocks['test'].append(fileName)
+#         elif fileName not in bdn_blocks['val'] and len(bdn_blocks['val']) < 1:
+#             bdn_blocks['val'].append(fileName)
+#         else:
+#             bdn_blocks['train'].append(fileName)
+#     # CAT3
+#     else:
+#         if fileName not in cat3_blocks['test'] and len(cat3_blocks['test']) < 8:
+#             cat3_blocks['test'].append(fileName)
+#         elif len(cat3_blocks['val']) < 8:
+#             cat3_blocks['val'].append(fileName)
+#         else:
+#             cat3_blocks['train'].append(fileName)
+#
+# print('len landscape files: ', len(l_landscape_files))
+# k = 0
+#
+# # no towers files
+# for fileName in l_landscape_files:
+#     k += 1
+#     # RIBERA
+#     if 'pt' in fileName:
+#         rib_blocks['train'].append(fileName)
+#     # BDN
+#     elif 'c' in fileName:
+#         bdn_blocks['train'].append(fileName)
+#     # CAT3
+#     else:
+#         cat3_blocks['train'].append(fileName)
+#
+# print('saved landscape files: ', k)
+# print('TEST BLOCKS:')
+# print('---CAT3---')
+# print(cat3_blocks['test'])
+# print('---Ribera---')
+# print(rib_blocks['test'])
+# print('---BDN---')
+# print(bdn_blocks['test'])
+#
+# with open('dicts/w80x80/dataset_blocks_partition_CAT3_towers' + '.json', 'w') as f:
+#     json.dump(cat3_blocks, f)
+# with open('dicts/w80x80/dataset_blocks_partition_RIBERA_towers' + '.json', 'w') as f:
+#     json.dump(rib_blocks, f)
+# with open('dicts/w80x80/dataset_blocks_partition_BDN_towers' + '.json', 'w') as f:
+#     json.dump(bdn_blocks, f)
 
 # ------------------------------------ create textfile with names of files --------------------------------
 
-path = '/home/m.caros/work/objectDetection/dicts'
-with open(path + '/dataset_blocks_partition_CAT3_towers_kmeans.json', 'r') as f:
+path = '/home/m.caros/work/objectDetection/dicts/w80x80'
+with open(path + '/dataset_blocks_partition_CAT3_towers.json', 'r') as f:
     cat3_blocks = json.load(f)
-with open(path + '/dataset_blocks_partition_RIBERA_towers_kmeans.json', 'r') as f:
+with open(path + '/dataset_blocks_partition_RIBERA_towers.json', 'r') as f:
     rib_blocks = json.load(f)
-with open(path + '/dataset_blocks_partition_BDN_towers_kmeans.json', 'r') as f:
+with open(path + '/dataset_blocks_partition_BDN_towers.json', 'r') as f:
     bdn_blocks = json.load(f)
 
 # set variables
 RGBN = True
 name = '_seg_files_kmeans'
-o_path = 'train_test_files/RGBN_other_list/'
+o_path = 'train_test_files/RGBN_x10_80x80_kmeans/'
 
 if RGBN:
     if not os.path.exists(o_path):

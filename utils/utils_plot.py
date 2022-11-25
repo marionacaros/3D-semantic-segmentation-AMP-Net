@@ -126,7 +126,7 @@ def plot_pointcloud_with_labels(pc, labels, iou_tower, name, path_plot=''):
     newcolors[:1, :] = np.array([255 / 256, 165 / 256, 0 / 256, 1])  # orange
     newcolors[3:4, :] = np.array([102 / 256, 256 / 256, 178 / 256, 1])  # light green
     cmap = ListedColormap(newcolors)
-    sc = ax.scatter(pc[:, 0], pc[:, 1], pc[:, 2], c=labels, s=7, marker='o', cmap=cmap, vmin=0, vmax=5)
+    sc = ax.scatter(pc[:, 0], pc[:, 1], pc[:, 2], c=labels, s=5, marker='o', cmap=cmap, vmin=0, vmax=5)
     plt.colorbar(sc, fraction=0.02, pad=0.1)
     plt.title('Point cloud - ' + str(len(pc)) + ' p -' + ' IoU tower: ' + str(iou_tower))
     fig = plt.gcf()
