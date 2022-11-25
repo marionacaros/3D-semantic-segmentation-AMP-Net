@@ -24,7 +24,7 @@ else:
     device = 'cpu'
 
 ATT_HEADS = 2
-GLOBAL_FEAT_SIZE = 512
+GLOBAL_FEAT_SIZE = 256
 
 
 def train_gru(task: str,
@@ -159,9 +159,15 @@ def train_gru(task: str,
     if model_checkpoint:
         print('Loading checkpoint')
         checkpoint = torch.load(model_checkpoint)
-        att_net.load_state_dict(checkpoint['model'])  # cls_model
-        # optimizer.load_state_dict(checkpoint['optimizer'])
-        # adjust_learning_rate(optimizer, learning_rate)
+
+        pointnet.load_state_dict(checkpoint['base_pointnet'])
+        att_net.load_state_dict(checkpoint['segmen_net'])
+        batch_size = checkpoint['batch_size']
+        learning_rate = checkpoint['lr']
+        epochs = checkpoint['epoch']
+
+        optimizer_pointnet.load_state_dict(checkpoint['optimizer_pointnet'])
+        optimizer_att.load_state_dict(checkpoint['optimizer_att'])
 
     # print model and parameters
     table = PrettyTable(["Modules", "Parameters"])

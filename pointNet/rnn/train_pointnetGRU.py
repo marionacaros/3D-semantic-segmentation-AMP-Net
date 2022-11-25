@@ -66,7 +66,7 @@ def train_gru(task: str,
         val_files = f.read().splitlines()
     print(f'Dataset folder: {dataset_folder}')
 
-    NAME = 'GRUg' + str(GLOBAL_FEAT_SIZE) + 'NOCABLES' #'h' + str(HIDDEN_SIZE)
+    NAME = 'GRUg' + str(GLOBAL_FEAT_SIZE) + 'h' + str(HIDDEN_SIZE)
 
     # Datasets train / val / test
     if task == 'classification':
@@ -240,7 +240,7 @@ def train_gru(task: str,
                 # 5 -> high vegetation
                 iou['bckg_train'].append(get_iou_obj(targets, preds, 0))
                 iou['tower_train'].append(get_iou_obj(targets, preds, 1))
-                # iou['cables_train'].append(get_iou_obj(targets, preds, 2))
+                iou['cables_train'].append(get_iou_obj(targets, preds, 2))
                 iou['low_veg_train'].append(get_iou_obj(targets, preds, 2))
                 iou['med_veg_train'].append(get_iou_obj(targets, preds, 3))
                 iou['high_veg_train'].append(get_iou_obj(targets, preds, 4))
@@ -267,7 +267,7 @@ def train_gru(task: str,
                 if task == 'segmentation':
                     iou['bckg_val'].append(get_iou_obj(targets, preds, 0))
                     iou['tower_val'].append(get_iou_obj(targets, preds, 1))
-                    # iou['cables_val'].append(get_iou_obj(targets, preds, 2))
+                    iou['cables_val'].append(get_iou_obj(targets, preds, 2))
                     iou['low_veg_val'].append(get_iou_obj(targets, preds, 2))
                     iou['med_veg_val'].append(get_iou_obj(targets, preds, 3))
                     iou['high_veg_val'].append(get_iou_obj(targets, preds, 4))
@@ -455,7 +455,7 @@ if __name__ == '__main__':
     parser.add_argument('task', type=str, choices=['classification', 'segmentation'], help='type of task')
     parser.add_argument('dataset_folder', type=str, help='path to the dataset folder')
     parser.add_argument('--path_list_files', type=str,
-                        default='train_test_files/RGBN_x10_kmeans',
+                        default='train_test_files/RGBN_x10_80x80_kmeans',
                         help='output folder')
     parser.add_argument('--output_folder', type=str, default='pointNet/results', help='output folder')
     parser.add_argument('--number_of_points', type=int, default=2048, help='number of points per cloud')

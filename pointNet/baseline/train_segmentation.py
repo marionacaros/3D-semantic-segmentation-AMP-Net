@@ -23,7 +23,7 @@ else:
     logging.info(f"cuda not available")
     device = 'cpu'
 
-GLOBAL_FEAT_SIZE = 256
+GLOBAL_FEAT_SIZE = 512
 
 
 def train(
@@ -55,7 +55,7 @@ def train(
     with open(os.path.join(path_list_files, 'val_seg_files.txt'), 'r') as f:
         val_files = f.read().splitlines()
 
-    NAME = 'base' + str(GLOBAL_FEAT_SIZE)
+    NAME = 'base80x80' + str(GLOBAL_FEAT_SIZE)
 
     writer_train = SummaryWriter(location + now.strftime("%m-%d-%H:%M") + 'seg_train' + NAME)
     writer_val = SummaryWriter(location + now.strftime("%m-%d-%H:%M") + 'seg_val' + NAME)
@@ -251,8 +251,8 @@ def train(
         if np.mean(epoch_val_loss) < best_vloss:
             # Save checkpoint
             # if task == 'classification':
-            #     name = now.strftime("%m-%d-%H:%M") + '_clsGRU' + NAME
-            name = now.strftime("%m-%d-%H:%M") + '_segGRU' + NAME
+            #     name = now.strftime("%m-%d-%H:%M") + '_cls' + NAME
+            name = now.strftime("%m-%d-%H:%M") + '_seg' + NAME
             save_checkpoint(name, epoch, epochs_since_improvement, pointnet,
                             optimizer, metrics['accuracy'],
                             batch_size, learning_rate, n_points, weighing_method)
@@ -330,7 +330,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('dataset_folder', type=str, help='path to the dataset folder')
     parser.add_argument('--path_list_files', type=str,
-                        default='train_test_files/RGBN_x10_pc')
+                        default='train_test_files/RGBN_x10_80x80')
     parser.add_argument('--output_folder', type=str, help='output folder')
     parser.add_argument('--number_of_points', type=int, default=2048, help='number of points per cloud')
     parser.add_argument('--batch_size', type=int, default=64, help='batch size')

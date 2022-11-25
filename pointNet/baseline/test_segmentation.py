@@ -25,7 +25,7 @@ def test(dataset_folder,
          model_checkpoint,
          path_list_files):
     start_time = time.time()
-    NAME = 'base_pointnet_segmen'
+    NAME = '_base_512_segmen'
 
     checkpoint = torch.load(model_checkpoint)
     iou = {
@@ -79,21 +79,21 @@ def test(dataset_folder,
     logging.info(f"Learning rate: {learning_rate}")
     logging.info(f"Number of points: {number_of_points}")
     logging.info(f'Model trained for {epochs} epochs')
-    name = model_checkpoint.split('/')[-1]
+    name = model_checkpoint.split('/')[-1].split('.')[0]
     logging.info(f'Model name: {name} ')
     table = PrettyTable(["Modules", "Parameters"])
     total_params = 0
-    for name, parameter in model.named_parameters():
+    for name_param, parameter in model.named_parameters():
         # if not parameter.requires_grad: continue
         # parameter.requires_grad = False # Freeze all layers
         params = parameter.numel()
-        table.add_row([name, params])
+        table.add_row([name_param, params])
         total_params += params
     # print(table)
     print(f"Total Trainable Params: {total_params}")
 
-    with open(os.path.join(output_folder, 'results-%s.csv' % name), 'w+') as fid:
-        fid.write('file_name,IoU_tower,IoU_low_veg,IoU_med_veg,IoU_high_veg,IoU_bckg,IoU_cables\n')
+    with open(os.path.join(output_folder, 'IoU-results-%s.csv' % name), 'w+') as fid:
+        fid.write('file_name,n_points,w,IoU_tower,IoU_low_veg,IoU_med_veg,IoU_high_veg,IoU_bckg,IoU_cables\n')
 
     for data in progressbar(test_dataloader):
         pc, targets, file_name = data  # [1, 2000, 12], [1, 2000]
@@ -114,39 +114,56 @@ def test(dataset_folder,
         iou['tower'].append(get_iou_obj(targets, preds, 1))
 
         if 0 in labels:
-            iou['bckg'].append(get_iou_obj(targets, preds, 0))
+            iou_bckg = get_iou_obj(preds, targets, 0)
+            iou['bckg'].append(iou_bckg)
+        else:
+            iou_bckg = None
         if 2 in labels:
-            iou['cables'].append(get_iou_obj(targets, preds, 2))
+            iou_cables = get_iou_obj(preds, targets, 2)
+            iou['cables'].append(iou_cables)
+        else:
+            iou_cables = None
         if 3 in labels:
-            iou['low_veg'].append(get_iou_obj(targets, preds, 3))
+            iou_low_veg = get_iou_obj(preds, targets, 3)
+            iou['low_veg'].append(iou_low_veg)
+        else:
+            iou_low_veg = None
         if 4 in labels:
-            iou['med_veg'].append(get_iou_obj(targets, preds, 4))
+            iou_med_veg = get_iou_obj(preds, targets, 4)
+            iou['med_veg'].append(iou_med_veg)
+        else:
+            iou_med_veg = None
         if 5 in labels:
-            iou['high_veg'].append(get_iou_obj(targets, preds, 5))
+            iou_high_veg = get_iou_obj(preds, targets, 5)
+            iou['high_veg'].append(iou_high_veg)
+        else:
+            iou_high_veg = None
 
         # plot predictions in tensorboard
-        if iou['tower'][-1] < 0.3:
-            plot_pointcloud_with_labels(pc.squeeze(0).numpy(),
-                                        preds,
-                                        round(iou['tower'][-1], 3),
-                                        file_name + NAME + '_preds.png',
-                                        path_plot=os.path.join(output_folder, 'figures'))
-            plot_pointcloud_with_labels(pc.squeeze(0).numpy(),
-                                        targets.reshape(-1),
-                                        round(iou['tower'][-1], 3),
-                                        file_name + NAME + '_targets.png',
-                                        path_plot=os.path.join(output_folder, 'figures'))
+        # if iou['tower'][-1] < 1:
+        #     plot_pointcloud_with_labels(pc.squeeze(0).numpy(),
+        #                                 preds,
+        #                                 round(iou['tower'][-1], 3),
+        #                                 file_name + NAME + '_preds.png',
+        #                                 path_plot=os.path.join(output_folder, 'figures'))
+        #     plot_pointcloud_with_labels(pc.squeeze(0).numpy(),
+        #                                 targets.reshape(-1),
+        #                                 round(iou['tower'][-1], 3),
+        #                                 file_name + NAME + '_targets.png',
+        #                                 path_plot=os.path.join(output_folder, 'figures'))
 
         # mean_ptg_corrects.append(ptg_corrects)
-        # with open(os.path.join(output_folder, 'results-%s.csv' % name), 'a') as fid:
-        #     fid.write('%s,%s,%s,%s,%s,%s,%s\n' % (file_name,
-        #                                           round(iou['tower'][-1], 3),
-        #                                           round(iou['low_veg'][-1], 3),
-        #                                           round(iou['med_veg'][-1], 3),
-        #                                           round(iou['high_veg'][-1], 3),
-        #                                           round(iou['bckg'][-1], 3),
-        #                                           round(iou['cables'][-1], 3),
-        #                                           ))
+        with open(os.path.join(output_folder, 'IoU-results-%s.csv' % name), 'a') as fid:
+            fid.write('%s,%s,%s,%s,%s,%s,%s,%s,%s\n' % (file_name,
+                                                        targets.view(-1).shape[0],
+                                                        1,
+                                                        round(iou['tower'][-1], 3),
+                                                        iou_low_veg,
+                                                        iou_med_veg,
+                                                        iou_high_veg,
+                                                        iou_bckg,
+                                                        iou_cables,
+                                                        ))
         # # store segmentation results in pickle file for plotting
         # points = points.reshape(-1, 11)
         # print(points.shape)
@@ -179,10 +196,10 @@ if __name__ == '__main__':
     parser.add_argument('--output_folder', type=str,
                         default='/home/m.caros/work/objectDetection/pointNet/results',
                         help='output folder')
-    parser.add_argument('--number_of_points', type=int, default=2048, help='number of points per cloud')
+    parser.add_argument('--number_of_points', type=int, default=4096, help='number of points per cloud')
     parser.add_argument('--number_of_workers', type=int, default=0, help='number of workers for the dataloader')
     parser.add_argument('--model_checkpoint', type=str, default='', help='model checkpoint path')
-    parser.add_argument('--path_list_files', type=str, default='train_test_files/RGBN_x10_pc')
+    parser.add_argument('--path_list_files', type=str, default='train_test_files/RGBN_x10_80x80')
 
     args = parser.parse_args()
 

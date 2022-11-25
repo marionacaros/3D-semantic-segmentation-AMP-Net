@@ -91,10 +91,10 @@ class LidarKmeansDataset4Train(data.Dataset):
         if task == 'segmentation':
             segment_labels = pointcloud[:, 3, :]  # [2048, 5]
             segment_labels[segment_labels == 15] = 100
-            # segment_labels[segment_labels == 14] = 200
-            segment_labels[segment_labels == 3] = 200
-            segment_labels[segment_labels == 4] = 300
-            segment_labels[segment_labels == 5] = 400
+            segment_labels[segment_labels == 14] = 200
+            segment_labels[segment_labels == 3] = 300
+            segment_labels[segment_labels == 4] = 400
+            segment_labels[segment_labels == 5] = 500
             segment_labels[segment_labels < 100] = 0
             segment_labels = (segment_labels/100)
 
@@ -164,100 +164,7 @@ class LidarKmeansDataset4Test(data.Dataset):
         with open(filename, 'rb') as f:
             pc = torch.from_numpy(pickle.load(f)).type(torch.FloatTensor)  # [2048, 11]
 
-        cluster_lists = self.kmeans_clustering(pc)
-
-        # pc_w size [2048, dims, w_len]
-        labels = self.get_labels(cluster_lists, self.classes_mapping[self.files[index]], self.task)
-
-        return cluster_lists, labels, filename
-
-    @staticmethod
-    def kmeans_clustering(in_pc, n_points=2048):
-        # in_pc [n_p, dim]
-        MAX_CLUSTERS = 5
-        cluster_lists=[]
-
-        # if point cloud is larger than n_points we cluster them with k-means
-        if in_pc.shape[0] > 2*n_points:
-
-            # K-means clustering
-            k_clusters = int(np.floor(in_pc.shape[0] / n_points))
-            # leftover = in_pc.shape[0] % n_points
-            # if k_clusters <= 5 and leftover != 0:
-            #     # Number of points must be multiple of n_points
-            #     replicate_idx = random.sample(range(0, in_pc.shape[0], 1), n_points - leftover)
-            #     replicate_points = in_pc[replicate_idx]
-            #     replicate_points[:, 3] = -1
-            #     in_pc = torch.cat((in_pc, replicate_points))
-
-            if k_clusters > 5:
-                k_clusters = 5
-
-            if k_clusters * n_points > in_pc.shape[0]:
-                print('debug error')
-
-            clf = KMeansConstrained(n_clusters=k_clusters, size_min=n_points)
-            i_f = [0, 1, 9]  # x,y, NDVI
-            i_cluster = clf.fit_predict(in_pc[:, i_f].numpy())  # array of ints -> indices to each of the windows
-
-            # get tuple cluster points
-            tuple_cluster_points = list(zip(i_cluster, in_pc))
-            cluster_list_tuples = [list(item[1]) for item in
-                             itertools.groupby(sorted(tuple_cluster_points, key=lambda x: x[0]), key=lambda x: x[0])]
-
-            for cluster in cluster_list_tuples:
-                pc_features_cluster = torch.stack([feat for (i_c, feat) in cluster])  # [2048, 11]
-                cluster_lists.append(pc_features_cluster)
-            #     pc_w = torch.cat((pc_w, pc_features_cluster.unsqueeze(2)), 2)  # [2048, 11, 1]
-
-        else:
-            cluster_lists.append(in_pc)
-
-        return cluster_lists
-
-
-    @staticmethod
-    def get_labels(cluster_lists,
-                   point_cloud_class,
-                   task='classification'):
-        """
-        Get labels for classification or segmentation
-
-        Segmentation labels:
-        0 -> background (other classes we're not interested)
-        1 -> tower
-        2 -> cables
-        3 -> low vegetation
-        4 -> medium vegetation
-        5 -> high vegetation
-
-        """
-
-        segment_labels_list = []
-
-        if task == 'segmentation':
-            for pointcloud in cluster_lists:
-
-                segment_labels = pointcloud[:, 3]
-                segment_labels[segment_labels == 15] = 100
-                segment_labels[segment_labels == 14] = 200
-                segment_labels[segment_labels == 3] = 300
-                segment_labels[segment_labels == 4] = 400
-                segment_labels[segment_labels == 5] = 500
-                segment_labels[segment_labels < 100] = 0
-                segment_labels = (segment_labels/100)
-
-                # segment_labels[segment_labels == 15] = 1
-                # segment_labels[segment_labels != 15] = 0
-
-                labels = segment_labels.type(torch.LongTensor)  # [2048, 5]
-                segment_labels_list.append(labels)
-
-        # elif task == 'classification':
-        #     labels = [point_cloud_class]
-        #     labels = labels * pointcloud.shape[2]
-
-        return segment_labels_list
+        return pc, filename
 
 
 class LidarDataset(data.Dataset):
@@ -370,10 +277,10 @@ class LidarDataset(data.Dataset):
         if task == 'segmentation':
             segment_labels = pointcloud[:, 3]
             segment_labels[segment_labels == 15] = 100
-            # segment_labels[segment_labels == 14] = 200
-            segment_labels[segment_labels == 3] = 200
-            segment_labels[segment_labels == 4] = 300
-            segment_labels[segment_labels == 5] = 400
+            segment_labels[segment_labels == 14] = 200
+            segment_labels[segment_labels == 3] = 300
+            segment_labels[segment_labels == 4] = 400
+            segment_labels[segment_labels == 5] = 500
             segment_labels[segment_labels < 100] = 0
             segment_labels = (segment_labels/100)
 

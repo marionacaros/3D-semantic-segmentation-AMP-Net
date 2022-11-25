@@ -1,10 +1,11 @@
 import argparse
+import itertools
 import time
 from torch.utils.data import random_split
 from pointNet.datasets import LidarKmeansDataset4Test
 import logging
 # from model.pointnet import *
-from pointNet.model.pointnetRNN import BasePointNet, SegmentationWithGRU, ClassificationFromGRU
+from pointNet.model.pointnetRNN import BasePointNet, SegmentationWithGRU
 from utils.utils import *
 from utils.utils_plot import *
 from utils.get_metrics import *
@@ -27,7 +28,6 @@ def test(dataset_folder,
          model_checkpoint,
          path_list_files):
     start_time = time.time()
-    NAME = 'pointNetGRU_segmen'
     n_windows = 5
 
     checkpoint = torch.load(model_checkpoint)
@@ -115,8 +115,13 @@ def test(dataset_folder,
         fid.write('file_name,n_points,w,IoU_tower,IoU_low_veg,IoU_med_veg,IoU_high_veg,IoU_bckg,IoU_cables\n')
 
     for data in progressbar(test_dataloader):
-        clusters_list, targets_list, file_name = data  # [1, 2000, 12], [1, 2000]
+        pc, file_name = data  # [1, 2000, 12], [1, 2000]
         file_name = file_name[0].split('/')[-1].split('.')[0]
+
+        clusters_list = kmeans_clustering(pc)
+
+        # pc_w size [2048, dims, w_len]
+        targets_list = get_labels(clusters_list)
 
         base_pointnet = base_pointnet.eval()
         segmen_net = segmen_net.eval()
@@ -141,18 +146,18 @@ def test(dataset_folder,
             lo_feats = torch.cat((lo_feats, local_feat), dim=1)
             gl_feats = torch.cat((gl_feats, global_feat), dim=1)
 
-            targets_pc = torch.cat((targets_pc, targets_list[ix]), dim=1)
-            pc = torch.cat((pc, in_points.cpu()), dim=1)
+            targets_pc = torch.cat((targets_pc, targets_list[ix]), dim=0)
+            pc = torch.cat((pc, in_points.squeeze(0).cpu()), dim=0)
 
         logits = segmen_net(gl_feats, lo_feats, np_cluster)  # [b, 2, 10240]
 
         # get predictions
         probs = F.log_softmax(logits.detach().to('cpu'), dim=1)
-        preds = torch.LongTensor(probs.data.max(1)[1])
+        preds = torch.LongTensor(probs.data.max(1)[1]).squeeze(0)
 
         # remove_padding
-        preds, targets_pc, mask = rm_padding(preds.cpu(), targets_pc)
-        pc = pc[mask, :]
+        # preds, targets_pc, mask = rm_padding(preds.cpu(), targets_pc)
+        # pc = pc[mask, :]
         # pc = pc.squeeze(0).numpy()
 
         # compute metrics
@@ -161,7 +166,6 @@ def test(dataset_folder,
 
         labels = set(targets_pc.view(-1).numpy())
         iou['tower'].append(get_iou_obj(preds, targets_pc, 1))
-        print(iou['tower'][-1])
 
         if 0 in labels:
             iou_bckg = get_iou_obj(preds, targets_pc, 0)
@@ -190,7 +194,7 @@ def test(dataset_folder,
             iou_high_veg = None
 
         # plot predictions in tensorboard
-        # if iou['tower'][-1] < 0.3:
+        # if iou['tower'][-1] < 0.5:
         #     plot_pointcloud_with_labels(pc,
         #                                 preds,
         #                                 round(iou['tower'][-1], 3),
@@ -240,6 +244,90 @@ def test(dataset_folder,
     print("--- TOTAL TIME: %s min ---" % (round((time.time() - start_time) / 60, 3)))
 
 
+def kmeans_clustering(in_pc, n_points=2048):
+    # in_pc [n_p, dim]
+    MAX_CLUSTERS = 5
+    cluster_lists=[]
+
+    # if point cloud is larger than n_points we cluster them with k-means
+    if in_pc.shape[0] > 2*n_points:
+
+        # K-means clustering
+        k_clusters = int(np.floor(in_pc.shape[0] / n_points))
+        # leftover = in_pc.shape[0] % n_points
+        # if k_clusters <= 5 and leftover != 0:
+        #     # Number of points must be multiple of n_points
+        #     replicate_idx = random.sample(range(0, in_pc.shape[0], 1), n_points - leftover)
+        #     replicate_points = in_pc[replicate_idx]
+        #     replicate_points[:, 3] = -1
+        #     in_pc = torch.cat((in_pc, replicate_points))
+
+        if k_clusters > 5:
+            k_clusters = 5
+
+        if k_clusters * n_points > in_pc.shape[0]:
+            print('debug error')
+
+        clf = KMeansConstrained(n_clusters=k_clusters, size_min=n_points,
+                                n_init=10, max_iter=300, tol=1e-4,
+                                verbose=False, random_state=None, copy_x=True, n_jobs=8
+                                )
+        i_f = [0, 1, 9]  # x,y, NDVI
+        i_cluster = clf.fit_predict(in_pc[:, i_f].numpy())  # array of ints -> indices to each of the windows
+
+        # get tuple cluster points
+        tuple_cluster_points = list(zip(i_cluster, in_pc))
+        cluster_list_tuples = [list(item[1]) for item in
+                         itertools.groupby(sorted(tuple_cluster_points, key=lambda x: x[0]), key=lambda x: x[0])]
+
+        for cluster in cluster_list_tuples:
+            pc_features_cluster = torch.stack([feat for (i_c, feat) in cluster])  # [2048, 11]
+            cluster_lists.append(pc_features_cluster)
+        #     pc_w = torch.cat((pc_w, pc_features_cluster.unsqueeze(2)), 2)  # [2048, 11, 1]
+
+    else:
+        cluster_lists.append(in_pc)
+
+    return cluster_lists
+
+
+def get_labels(cluster_lists):
+    """
+    Get labels for classification or segmentation
+
+    Segmentation labels:
+    0 -> background (other classes we're not interested)
+    1 -> tower
+    2 -> cables
+    3 -> low vegetation
+    4 -> medium vegetation
+    5 -> high vegetation
+
+    """
+
+    segment_labels_list = []
+
+    for pointcloud in cluster_lists:
+
+        pointcloud = pointcloud.squeeze(0)
+        segment_labels = pointcloud[:, 3]
+        segment_labels[segment_labels == 15] = 100
+        segment_labels[segment_labels == 14] = 200
+        segment_labels[segment_labels == 3] = 300
+        segment_labels[segment_labels == 4] = 400
+        segment_labels[segment_labels == 5] = 500
+        segment_labels[segment_labels < 100] = 0
+        segment_labels = (segment_labels/100)
+
+        # segment_labels[segment_labels == 15] = 1
+        # segment_labels[segment_labels != 15] = 0
+
+        labels = segment_labels.type(torch.LongTensor)  # [2048, 5]
+        segment_labels_list.append(labels)
+
+    return segment_labels_list
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('dataset_folder', type=str, help='path to the dataset folder')
@@ -249,7 +337,7 @@ if __name__ == '__main__':
     parser.add_argument('--number_of_points', type=int, default=2048, help='number of points per cloud')
     parser.add_argument('--number_of_workers', type=int, default=0, help='number of workers for the dataloader')
     parser.add_argument('--model_checkpoint', type=str, default='', help='model checkpoint path')
-    parser.add_argument('--path_list_files', type=str, default='train_test_files/RGBN_x10_pc')
+    parser.add_argument('--path_list_files', type=str, default='train_test_files/RGBN_x10_40x40')
 
     args = parser.parse_args()
 
