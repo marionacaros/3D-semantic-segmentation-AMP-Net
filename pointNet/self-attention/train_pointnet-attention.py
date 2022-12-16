@@ -78,7 +78,7 @@ def train_gru(task: str,
         writer_val = SummaryWriter(location + now.strftime("%m-%d-%H:%M") + 'seg_val' + NAME)
         print(f"Tensorboard runs: {writer_train.get_logdir()}")
 
-        collate_fn = collate_seq4segmen_padd
+        collate_fn = collate_seq_padd
 
     # Initialize datasets
     train_dataset = LidarKmeansDataset4Train(dataset_folder=dataset_folder,
@@ -415,6 +415,7 @@ def train_loop(data, optimizer_pointnet, optimizer_att, ce_loss, pointnet, att_n
             pc = torch.cat((pc, in_points.cpu()), dim=1)
 
     # mask for attention: True value indicates that the corresponding position is not allowed
+    # (N⋅num_heads,L,S)
     # mask = torch.where(targets != -1, torch.zeros_like(targets, dtype=torch.bool),
     #                    torch.ones_like(targets, dtype=torch.bool))
     # mask size [b, w_len]
@@ -472,7 +473,7 @@ if __name__ == '__main__':
     parser.add_argument('task', type=str, choices=['classification', 'segmentation'], help='type of task')
     parser.add_argument('dataset_folder', type=str, help='path to the dataset folder')
     parser.add_argument('--path_list_files', type=str,
-                        default='train_test_files/RGBN_x10_kmeans',
+                        default='train_test_files/RGBN_x10_80x80_kmeans',
                         help='output folder')
     parser.add_argument('--output_folder', type=str, default='pointNet/results', help='output folder')
     parser.add_argument('--number_of_points', type=int, default=2048, help='number of points per cloud')

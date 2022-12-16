@@ -75,16 +75,6 @@ def split_dataset_windows(DATASET_NAME, LAS_PATH, SEL_CLASS, min_p=10, w_size=[4
     # ------------------------------------------------------------------------------------------------------------
 
 
-# def parallel_reading(files_list, selClass, NUM_CPUS):
-#     p = multiprocessing.Pool(NUM_CPUS)
-#     func = partial(get_pointCloud_selClass,
-#                    selClass=selClass)
-#     data_outputs=p.imap_unordered(func, files_list, 10)
-#     p.close()
-#     p.join()
-#     return data_outputs
-
-
 def get_pointCloud_selClass(path, selClass=15):
     """
     Get x,y,z of  points labeled as our target object (selClass)

@@ -73,15 +73,11 @@ def train_gru(task: str,
         writer_train = SummaryWriter(location + now.strftime("%m-%d-%H:%M") + 'cls_train' + NAME)
         writer_val = SummaryWriter(location + now.strftime("%m-%d-%H:%M") + 'cls_val' + NAME)
         print(f"Tensorboard runs: {writer_train.get_logdir()}")
-        # padding batch function
-        collate_fn = collate_seq_padd
 
     elif task == 'segmentation':
         writer_train = SummaryWriter(location + now.strftime("%m-%d-%H:%M") + 'seg_train' + NAME)
         writer_val = SummaryWriter(location + now.strftime("%m-%d-%H:%M") + 'seg_val' + NAME)
         print(f"Tensorboard runs: {writer_train.get_logdir()}")
-        # padding batch function
-        collate_fn = collate_seq4segmen_padd
 
     # Initialize datasets
     train_dataset = LidarKmeansDataset4Train(dataset_folder=dataset_folder,
@@ -117,13 +113,13 @@ def train_gru(task: str,
                                                    shuffle=True,
                                                    num_workers=number_of_workers,
                                                    drop_last=True,
-                                                   collate_fn=collate_fn)
+                                                   collate_fn=collate_seq_padd)
     val_dataloader = torch.utils.data.DataLoader(val_dataset,
                                                  batch_size=batch_size,
                                                  shuffle=True,
                                                  num_workers=number_of_workers,
                                                  drop_last=True,
-                                                 collate_fn=collate_fn)
+                                                 collate_fn=collate_seq_padd)
 
     # ------------------------------------------- Models initialization -------------------------------------------
 
@@ -216,9 +212,6 @@ def train_gru(task: str,
         if epochs_since_improvement == 10:
             adjust_learning_rate(optimizer_pointnet, 0.5)
             adjust_learning_rate(optimizer_pred, 0.5)
-        # elif epoch == 15:
-        #     adjust_learning_rate(optimizer_pointnet, 0.5)
-        #     adjust_learning_rate(optimizer_pred, 0.5)
 
         # --------------------------------------------- train loop ---------------------------------------------
         for data in train_dataloader:
@@ -234,16 +227,16 @@ def train_gru(task: str,
                 # Segmentation labels:
                 # 0 -> background (other classes we're not interested)
                 # 1 -> tower
-                # 2 ->
+                # 2 -> cables
                 # 3 -> low vegetation
                 # 4 -> medium vegetation
                 # 5 -> high vegetation
                 iou['bckg_train'].append(get_iou_obj(targets, preds, 0))
                 iou['tower_train'].append(get_iou_obj(targets, preds, 1))
                 iou['cables_train'].append(get_iou_obj(targets, preds, 2))
-                iou['low_veg_train'].append(get_iou_obj(targets, preds, 2))
-                iou['med_veg_train'].append(get_iou_obj(targets, preds, 3))
-                iou['high_veg_train'].append(get_iou_obj(targets, preds, 4))
+                iou['low_veg_train'].append(get_iou_obj(targets, preds, 3))
+                iou['med_veg_train'].append(get_iou_obj(targets, preds, 4))
+                iou['high_veg_train'].append(get_iou_obj(targets, preds, 5))
 
             # tensorboard
             ce_train_loss.append(metrics['ce_loss'].cpu().item())
@@ -268,9 +261,9 @@ def train_gru(task: str,
                     iou['bckg_val'].append(get_iou_obj(targets, preds, 0))
                     iou['tower_val'].append(get_iou_obj(targets, preds, 1))
                     iou['cables_val'].append(get_iou_obj(targets, preds, 2))
-                    iou['low_veg_val'].append(get_iou_obj(targets, preds, 2))
-                    iou['med_veg_val'].append(get_iou_obj(targets, preds, 3))
-                    iou['high_veg_val'].append(get_iou_obj(targets, preds, 4))
+                    iou['low_veg_val'].append(get_iou_obj(targets, preds, 3))
+                    iou['med_veg_val'].append(get_iou_obj(targets, preds, 4))
+                    iou['high_veg_val'].append(get_iou_obj(targets, preds, 5))
 
                 # tensorboard
                 epoch_val_loss.append(metrics['loss'].cpu().item())  # in val ce_loss and total_loss are the same
@@ -459,8 +452,8 @@ if __name__ == '__main__':
                         help='output folder')
     parser.add_argument('--output_folder', type=str, default='pointNet/results', help='output folder')
     parser.add_argument('--number_of_points', type=int, default=2048, help='number of points per cloud')
-    parser.add_argument('--number_of_windows', type=int, default=5, help='number of maximum windows per cloud')
-    parser.add_argument('--batch_size', type=int, default=32, help='batch size')
+    parser.add_argument('--number_of_windows', type=int, default=20, help='number of maximum windows per cloud')
+    parser.add_argument('--batch_size', type=int, default=64, help='batch size')
     parser.add_argument('--epochs', type=int, default=200, help='number of epochs')
     parser.add_argument('--learning_rate', type=float, default=0.001, help='learning rate')
     parser.add_argument('--weighing_method', type=str, default='EFS',

@@ -6,14 +6,12 @@ import torch
 import glob
 import numpy as np
 import pickle
-import random
-from k_means_constrained import KMeansConstrained
-import itertools
+# from k_means_constrained import KMeansConstrained
 
 
 class LidarKmeansDataset4Train(data.Dataset):
     NUM_CLASSIFICATION_CLASSES = 2
-    POINT_DIMENSION = 2
+    POINT_DIMENSION = 2  # we use 2 dimensions (x,y) to learn T-Net transformation
 
     def __init__(self, dataset_folder,
                  task='classification',
@@ -71,16 +69,17 @@ class LidarKmeansDataset4Train(data.Dataset):
     @staticmethod
     def get_labels(pointcloud,
                    point_cloud_class,
-                   task='classification'):
+                   task='segmentation'):
         """
         Get labels for classification or segmentation
 
         Segmentation labels:
         0 -> background (other classes we're not interested)
         1 -> tower
-        2 -> low vegetation
-        3 -> medium vegetation
-        4 -> high vegetation
+        2 -> cables
+        3 -> low vegetation
+        4 -> medium vegetation
+        5 -> high vegetation
 
         :param pointcloud: [n_points, dim, seq_len]
         :param point_cloud_class: point cloud category

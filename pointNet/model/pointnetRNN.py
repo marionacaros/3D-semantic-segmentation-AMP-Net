@@ -144,7 +144,7 @@ class SegmentationWithAttention(nn.Module):
                                                num_heads=num_heads,  # todo test 10
                                                dropout=dropout)
 
-        self.conv_1 = nn.Conv1d(num_w, 1, 1, bias=True)  # ????
+        self.conv_1 = nn.Conv1d(num_w, 1, 1, bias=True)
 
         self.conv_2 = nn.Conv1d(320, 128, 1)
         self.conv_3 = nn.Conv1d(128, 64, 1)

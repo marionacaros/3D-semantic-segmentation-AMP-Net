@@ -1,0 +1,2 @@
+
+python /home/m.caros/work/objectDetection/data_proc/1_get_windows_inference.py --w_size 80 --dataset_name test_inference --LAS_files_path /mnt/Lidar_O/DeepLIDAR/VolVegetacioRibera_ClassTorres-Linies/LAS --out_path /dades/LIDAR/towers_detection/LAS_data_windows

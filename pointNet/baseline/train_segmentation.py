@@ -23,7 +23,7 @@ else:
     logging.info(f"cuda not available")
     device = 'cpu'
 
-GLOBAL_FEAT_SIZE = 512
+GLOBAL_FEAT_SIZE = 256
 
 
 def train(
@@ -334,7 +334,7 @@ if __name__ == '__main__':
     parser.add_argument('--output_folder', type=str, help='output folder')
     parser.add_argument('--number_of_points', type=int, default=2048, help='number of points per cloud')
     parser.add_argument('--batch_size', type=int, default=64, help='batch size')
-    parser.add_argument('--epochs', type=int, default=50, help='number of epochs')
+    parser.add_argument('--epochs', type=int, default=80, help='number of epochs')
     parser.add_argument('--learning_rate', type=float, default=0.001, help='learning rate')
     parser.add_argument('--weighing_method', type=str, default='EFS',
                         help='sample weighing method: ISNS or INS or EFS')

@@ -5,19 +5,20 @@ import random
 import json
 
 # --------------------------------- DATASET BLOCKS PARTITION  -----------------------------------------------
-main_path = '/dades/LIDAR/towers_detection/datasets/kmeans_80x80/*pkl'
+# main_path = '/dades/LIDAR/towers_detection/datasets/kmeans_80x80_w16/*pt'
+main_path = '/dades/LIDAR/towers_detection/datasets/pc_towers_80x80_10p/normalized_2048/*pkl'
 list_f = glob.glob(main_path)
 random.shuffle(list_f)
 print(len(list_f))
 print(list_f[0])
-
-rib_blocks = {'train': [], 'test': [], 'val': []}
-cat3_blocks = {'train': [], 'test': [], 'val': []}
-bdn_blocks = {'train': [], 'test': [], 'val': []}
-
-l_tower_files = []
-l_landscape_files = []
-i = 0
+#
+# rib_blocks = {'train': [], 'test': [], 'val': []}
+# cat3_blocks = {'train': [], 'test': [], 'val': []}
+# bdn_blocks = {'train': [], 'test': [], 'val': []}
+#
+# l_tower_files = []
+# l_landscape_files = []
+# i = 0
 #
 # for file in progressbar(list_f):
 #
@@ -107,8 +108,8 @@ with open(path + '/dataset_blocks_partition_BDN_towers.json', 'r') as f:
 
 # set variables
 RGBN = True
-name = '_seg_files_kmeans'
-o_path = 'train_test_files/RGBN_x10_80x80_kmeans/'
+name = '_seg_files'
+o_path = 'train_test_files/RGBN_x10_80x80/'
 
 if RGBN:
     if not os.path.exists(o_path):

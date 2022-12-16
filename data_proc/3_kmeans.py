@@ -9,15 +9,14 @@ import datetime
 from torch.utils.tensorboard import SummaryWriter
 import random
 import multiprocessing
-from functools import partial
 
 i_path = '/dades/LIDAR/towers_detection/datasets/pc_towers_80x80_10p/normalized_2048'
-o_path = '/dades/LIDAR/towers_detection/datasets/kmeans_80x80_w30/'
+o_path = '/dades/LIDAR/towers_detection/datasets/kmeans_80x80_w16/'
 N_POINTS = 2048
-NUM_CPUS = 1
+NUM_CPUS = 20
 
 
-def split_kmeans(file_path, n_points=2948, max_clusters=30, plot=False, writer_tensorboard=None):
+def split_kmeans(file_path, n_points=N_POINTS, max_clusters=16, plot=False, writer_tensorboard=None):
     """ split point cloud in windows of fixed size (n_points) with k-means
     Fill empty windows with duplicate points of previous windows
     Number of points must be multiple of n_points, so points left over are removed
@@ -32,7 +31,7 @@ def split_kmeans(file_path, n_points=2948, max_clusters=30, plot=False, writer_t
     :return pc_w: tensor containing point cloud in windows of fixed size [2048, 11, w_len]
     """
 
-    filename = file_path.split('/')[-1].split('.')[0] + '_kmeans'
+    filename = file_path.split('/')[-1].split('.')[0]
 
     with open(file_path, 'rb') as f:
         in_pc = torch.Tensor(pickle.load(f))
@@ -55,10 +54,11 @@ def split_kmeans(file_path, n_points=2948, max_clusters=30, plot=False, writer_t
             in_pc = in_pc[:n_points * (in_pc.shape[0] // n_points), :]
 
         clf = KMeansConstrained(n_clusters=k_clusters, size_min=n_points, size_max=n_points,
-                                n_init=5, max_iter=200, tol=1e-4,
+                                n_init=5, max_iter=150, tol=1e-4,
                                 verbose=False, random_state=None, copy_x=True)
         i_f = [0, 1, 9]  # x,y, NDVI
         i_cluster = clf.fit_predict(in_pc[:, i_f].numpy())  # array of ints -> indices to each of the windows
+        print('\n', max(i_cluster))
 
         # get tuple cluster points
         tuple_cluster_points = list(zip(i_cluster, in_pc))
@@ -77,15 +77,18 @@ def split_kmeans(file_path, n_points=2948, max_clusters=30, plot=False, writer_t
                                              i_w=cluster[0][0] + 1,
                                              title='cluster ' + str(cluster[0][0]), n_clusters=k_clusters)
     else:
+        if in_pc.shape[0] != n_points:
+            ix = random.sample(range(in_pc.shape[0]), n_points)
+            in_pc = in_pc[ix, :, ]
         pc_w = in_pc.unsqueeze(2)
 
-    torch.save(pc_w, o_path + 'kmeans_' + filename)
+    torch.save(pc_w, o_path + 'kmeans_' + filename + '.pt')
 
 
 def parallel_kmeans(files_list, num_cpus):
     p = multiprocessing.Pool(processes=num_cpus)
 
-    for _ in progressbar(p.imap_unordered(split_kmeans, files_list, 1), max_value=len(files_list)):
+    for _ in progressbar(p.imap_unordered(split_kmeans, files_list, 1), max_value=len(files_list), redirect_stdout=True): #
         pass
 
     p.close()
@@ -103,7 +106,7 @@ if __name__ == '__main__':
     files = glob.glob(os.path.join(i_path, 'tower_*pkl'))
 
     # Sort list of files in directory by size
-    files = sorted(files, key=lambda x: os.stat(x).st_size)
+    files = sorted(files, key=lambda x: os.stat(x).st_size, reverse=False)
 
     if not os.path.exists(o_path):
         # Create a new directory because it does not exist
