@@ -5,9 +5,10 @@ import torch.nn.functional as F
 
 class TransformationNet(nn.Module):
 
-    def __init__(self, input_dim, output_dim):
+    def __init__(self, input_dim, output_dim, device):
         super(TransformationNet, self).__init__()
         self.output_dim = output_dim
+        self.device = device
 
         self.conv_1 = nn.Conv1d(input_dim, 64, 1, bias=False)
         self.conv_2 = nn.Conv1d(64, 128, 1, bias=False)
@@ -38,32 +39,32 @@ class TransformationNet(nn.Module):
         x = self.fc_3(x)
 
         identity_matrix = torch.eye(self.output_dim)
-        if torch.cuda.is_available():
-            identity_matrix = identity_matrix.cuda()
+        identity_matrix = identity_matrix.to(self.device)
+
         x = x.view(-1, self.output_dim, self.output_dim) + identity_matrix
         return x
 
 
 class BasePointNet(nn.Module):
 
-    def __init__(self, point_dimension, return_local_features=False, dataset=''):
+    def __init__(self, point_dimension, return_local_features=False, dataset='', device='cpu'):
         super(BasePointNet, self).__init__()
         self.dataset = dataset
         self.return_local_features = return_local_features
-        self.input_transform = TransformationNet(input_dim=point_dimension, output_dim=point_dimension)
-        self.feature_transform = TransformationNet(input_dim=64, output_dim=64)
+        self.input_transform = TransformationNet(input_dim=point_dimension, output_dim=point_dimension, device=device)
+        self.feature_transform = TransformationNet(input_dim=64, output_dim=64, device=device)
 
         self.conv_1 = nn.Conv1d(7, 64, 1, bias=False)  # 7 channels to take I, NDVI, RGB into account
         self.conv_2 = nn.Conv1d(64, 64, 1, bias=False)
         self.conv_3 = nn.Conv1d(64, 64, 1, bias=False)
         self.conv_4 = nn.Conv1d(64, 128, 1, bias=False)
-        self.conv_5 = nn.Conv1d(128, 512, 1, bias=False)
+        self.conv_5 = nn.Conv1d(128, 256, 1, bias=False)
 
         self.bn_1 = nn.BatchNorm1d(64)
         self.bn_2 = nn.BatchNorm1d(64)
         self.bn_3 = nn.BatchNorm1d(64)
         self.bn_4 = nn.BatchNorm1d(128)
-        self.bn_5 = nn.BatchNorm1d(512)
+        self.bn_5 = nn.BatchNorm1d(256)
 
     def forward(self, x):
         num_points = x.shape[1]  # torch.Size([BATCH, SAMPLES, DIMS])
@@ -89,10 +90,10 @@ class BasePointNet(nn.Module):
         x = F.relu(self.bn_4(self.conv_4(x)))
         x = F.relu(self.bn_5(self.conv_5(x)))
         x = nn.MaxPool1d(num_points)(x)
-        global_feature = x.view(-1, 512)
+        global_feature = x.view(-1, 256)
 
         if self.return_local_features:
-            global_feature = global_feature.view(-1, 512, 1).repeat(1, 1, num_points)
+            global_feature = global_feature.view(-1, 256, 1).repeat(1, 1, num_points)
             return torch.cat([global_feature.transpose(2, 1), local_point_features], 2), feature_transform
         else:
             return global_feature, feature_transform
@@ -100,12 +101,12 @@ class BasePointNet(nn.Module):
 
 class ClassificationPointNet_IGBVI(nn.Module):
 
-    def __init__(self, num_classes, dropout=0.3, point_dimension=3, dataset=''):
+    def __init__(self, num_classes, dropout=0.3, point_dimension=3, dataset='', device='cpu'):
         super(ClassificationPointNet_IGBVI, self).__init__()
         self.dataset = dataset
 
         self.base_pointnet = BasePointNet(return_local_features=False, point_dimension=point_dimension,
-                                          dataset=self.dataset)
+                                          dataset=self.dataset, device=device)
 
         self.fc_1 = nn.Linear(256, 128, bias=False)
         self.fc_2 = nn.Linear(128, 64, bias=False)

@@ -7,20 +7,21 @@ import pickle
 import laspy
 import time
 
-logging.basicConfig(format='--- %(asctime)s %(levelname)-8s --- %(message)s',
+logging.basicConfig(format='[ %(asctime)s %(levelname)s %(filename)20s() ] %(message)s',
                     level=logging.INFO,
-                    datefmt='%Y-%m-%d %H:%M:%S')
+                    datefmt='%d-%m %H:%M:%S')
 
 
 def remove_ground_and_outliers(files_path, out_path, max_z=100.0, max_intensity=5000, n_points=2048,
                                dataset='', TH_1=3, TH_2=8):
     """
-    1- Remove certain labeled points (by Terrasolid) to reduce noise and number of points
+    1- Remove ground and noise labeled points (by Terrasolid) to reduce noise and number of points
     2- Add NIR from dictionary
     3- Remove outliers defined as points > max_z and points < 0
-    4- Normalize data
-    5- Remove terrain points (up to n_points points in point cloud)
-    6- Add constrained sampling flag at column 10
+    4- Compute NDVI
+    5- Normalize data points
+    6- Remove terrain points (up to n_points points in point cloud)
+    7- Add constrained sampling flag at column 10
 
     Point labels:
     2 ➔ terreny
@@ -29,7 +30,7 @@ def remove_ground_and_outliers(files_path, out_path, max_z=100.0, max_intensity=
     24 ➔ solapament
     135 (30) ➔ soroll del sensor
 
-    It stores pickle files with preprocessed data
+    It stores pickle files with preprocessed data into out_path
     """
     counters = {
         'total_count': 0,
@@ -41,10 +42,14 @@ def remove_ground_and_outliers(files_path, out_path, max_z=100.0, max_intensity=
         'missed': 0
     }
 
+    logging.info(f'Input path: {files_path}')
     out_path = os.path.join(out_path, 'normalized_' + str(n_points))
     logging.info(f'output path: {out_path}')
     if not os.path.exists(out_path):
         os.makedirs(out_path)
+
+    # logging.info(f"Remove points of ground (up to {args.n_points})")
+    # logging.info(f"Add constrained sampling flag")
 
     files = glob.glob(os.path.join(files_path, '*.las'))
     for file in progressbar(files):
@@ -91,11 +96,15 @@ def remove_ground_and_outliers(files_path, out_path, max_z=100.0, max_intensity=
                                 data_f.green / 65536.0,
                                 data_f.blue / 65536.0,
                                 nir_arr / 65535.0,
-                                ndvi_arr))
+                                ndvi_arr,
+                                np.zeros(len(data_f.x)),  # used for storing constrained sampling flag
+                                data_f.x, data_f.y, data_f.z))
 
                 # ----------------------------------------- NORMALIZATION -----------------------------------------
                 pc = pc.transpose()
                 # normalize axes
+                if pc[:, 0].max() - pc[:, 0].min() == 0:
+                    continue
                 pc[:, 0] = (pc[:, 0] - pc[:, 0].min()) / (pc[:, 0].max() - pc[:, 0].min())
                 pc[:, 1] = (pc[:, 1] - pc[:, 1].min()) / (pc[:, 1].max() - pc[:, 1].min())
                 pc[:, 2] = pc[:, 2] / max_z
@@ -130,7 +139,7 @@ def remove_ground_and_outliers(files_path, out_path, max_z=100.0, max_intensity=
                     pc = pc[pc[:, 3] != 2, :]
                     # store only needed terrain points
                     pc = np.concatenate((pc, points_needed_terrain), axis=0)
-
+                # remove terrain points
                 elif len_pc >= n_points:
                     pc = pc[pc[:, 3] != 2, :]
 
@@ -148,7 +157,7 @@ def remove_ground_and_outliers(files_path, out_path, max_z=100.0, max_intensity=
                     counters['missed'] += 1
 
         except Exception as e:
-            print(f'Error {e} in file {fileName}')
+            print(f'\nError {e} in file {fileName}')
 
     print(f'count keep ground: ', counters['keep_ground'])
     print(f'count not enough ground points: ', counters['need_ground'])
@@ -165,6 +174,7 @@ def constrained_sampling(pc, n_points, TH_1=3.0, TH_2=8.0, counters={}):
     """
     Gradual sampling considering thresholds TH_1 and TH_2. It drops lower points and keeps higher points.
     The goal is to remove noise caused by vegetation.
+    Constrained sampling flag is stored in position 10
 
     :param pc: data to apply constrained sampling
     :param n_points: minimum amount of point per PC
@@ -174,10 +184,6 @@ def constrained_sampling(pc, n_points, TH_1=3.0, TH_2=8.0, counters={}):
 
     :return:pc_sampled, counters
     """
-
-    # add column of zeros
-    pc = np.c_[pc, np.zeros(pc.shape[0])]  # column ix=10
-    assert pc.shape[1] == 11
 
     # if number of points > n_points sampling is needed
     if pc.shape[0] > n_points:
@@ -239,34 +245,22 @@ def constrained_sampling(pc, n_points, TH_1=3.0, TH_2=8.0, counters={}):
 
 
 if __name__ == '__main__':
+    start_time = time.time()
+
+    # !!!!!!!!! IMPORTANT !!!!!!!!!
+    # First execute pdal_hag.sh  # to get HeightAboveGround
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--out_path', type=str, default='/dades/LIDAR/towers_detection/datasets/pc_towers_80x80_10p',
                         help='output folder where processed files are stored')
     parser.add_argument('--in_path', default='/dades/LIDAR/towers_detection/LAS_data_windows/')
-    parser.add_argument('--datasets', type=list, default=['RIBERA'], help='list of datasets names')
+    parser.add_argument('--dataset', type=list, default='RIBERA', help='dataset name')
     parser.add_argument('--n_points', type=int, default=2048)
     parser.add_argument('--max_z', type=float, default=100.0)
-
     args = parser.parse_args()
-    start_time = time.time()
 
-    for DATASET in args.datasets:
-        paths = [args.in_path + DATASET + '/w_towers_80x80_10p']
-                 #args.in_path + DATASET + '/w_no_towers_40x40']
+    # ------ Remove ground, noise, outliers and normalize ------
+    remove_ground_and_outliers(args.in_path, args.out_path, max_z=args.max_z, max_intensity=5000,
+                               n_points=args.n_points, dataset=args.dataset)
+    logging.info("--- Remove ground and noise time: %s h ---" % (round((time.time() - start_time) / 3600, 3)))
 
-        for input_path in paths:
-            logging.info(f'Input path: {args.in_path}')
-
-            # !!!!!!!!! IMPORTANT !!!!!!!!!
-            # First execute pdal_hag.sh  # to get HeightAboveGround
-
-            # ------ Remove ground, noise, outliers and normalize ------
-            logging.info(f"1. Remove points of ground (up to {args.n_points}), noise and outliers, normalize"
-                         f"and add constrained sampling flag ")
-            remove_ground_and_outliers(input_path, args.out_path, max_z=args.max_z, max_intensity=5000,
-                                       n_points=args.n_points, dataset=DATASET)
-            print("--- Remove ground and noise time: %s h ---" % (round((time.time() - start_time) / 3600, 3)))
-            rm_ground_time = time.time()
-
-    print("--- TOTAL TIME: %s h ---" % (round((time.time() - start_time) / 3600, 3)))

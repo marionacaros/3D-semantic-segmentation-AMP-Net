@@ -231,12 +231,12 @@ class LidarDataset(data.Dataset):
 
         with open(point_file, 'rb') as f:
             pc = pickle.load(f).astype(np.float32)  # [2048, 11]
-        # pc = pc[:,:10]
+
         np.random.shuffle(pc)
 
         # if constrained sampling -> get points labeled for sampling
         if constrained_sample:
-            pc = pc[pc[:, -1] == 1]  # should be label of position 11
+            pc = pc[pc[:, 10] == 1]  # should be flag of position 10
 
         # sample points if fixed_num_points (random sampling, no RNN)
         if fixed_num_points and pc.shape[0] > number_of_points:
@@ -259,6 +259,10 @@ class LidarDataset(data.Dataset):
                    task='classification'):
         """
         Get labels for classification or segmentation
+
+        Classification labels:
+        0 -> No tower (negative)
+        1 -> Tower (positive)
 
         Segmentation labels:
         0 -> background (other classes we're not interested)
@@ -286,11 +290,11 @@ class LidarDataset(data.Dataset):
             # segment_labels[segment_labels == 15] = 1
             # segment_labels[segment_labels != 15] = 0
 
-            labels = segment_labels.type(torch.LongTensor)  # [2048, 5]
+            labels = torch.LongTensor(segment_labels)  # [2048, 5]
 
         elif task == 'classification':
-            labels = [point_cloud_class]
-            labels = labels * pointcloud.shape[2]
+            labels = point_cloud_class
+            # labels = labels * pointcloud.shape[2]
 
         return labels
 

@@ -6,7 +6,8 @@ import json
 
 # --------------------------------- DATASET BLOCKS PARTITION  -----------------------------------------------
 # main_path = '/dades/LIDAR/towers_detection/datasets/kmeans_80x80_w16/*pt'
-main_path = '/dades/LIDAR/towers_detection/datasets/pc_towers_80x80_10p/normalized_2048/*pkl'
+# main_path = '/dades/LIDAR/towers_detection/datasets/pc_towers_80x80_10p/normalized_2048/*pkl'
+main_path = '/dades/LIDAR/towers_detection/datasets/pc_towers_40x40_10p/normalized_2048/*pkl'
 list_f = glob.glob(main_path)
 random.shuffle(list_f)
 print(len(list_f))
@@ -98,7 +99,9 @@ print(list_f[0])
 
 # ------------------------------------ create textfile with names of files --------------------------------
 
-path = '/home/m.caros/work/objectDetection/dicts/w80x80'
+# path = '/home/m.caros/work/objectDetection/dicts/w80x80'
+path = '/home/m.caros/work/objectDetection/dicts/w40x40'
+
 with open(path + '/dataset_blocks_partition_CAT3_towers.json', 'r') as f:
     cat3_blocks = json.load(f)
 with open(path + '/dataset_blocks_partition_RIBERA_towers.json', 'r') as f:
@@ -108,8 +111,8 @@ with open(path + '/dataset_blocks_partition_BDN_towers.json', 'r') as f:
 
 # set variables
 RGBN = True
-name = '_seg_files'
-o_path = 'train_test_files/RGBN_x10_80x80/'
+name = '_cls_files'
+o_path = 'train_test_files/RGBN_x10_40x40/'
 
 if RGBN:
     if not os.path.exists(o_path):
@@ -130,9 +133,9 @@ ctrain_tower = 0
 cval_tower = 0
 ctest_tower = 0
 
-file_object = open(o_path + 'train' + name + '.txt', 'w')
-file_object = open(o_path + 'val' + name + '.txt', 'w')
-file_object = open(o_path + 'test' + name + '.txt', 'w')
+# file_object = open(o_path + 'train' + name + '.txt', 'w')
+# file_object = open(o_path + 'val' + name + '.txt', 'w')
+# file_object = open(o_path + 'test' + name + '.txt', 'w')
 
 for file in progressbar(files):
 
@@ -148,8 +151,8 @@ for file in progressbar(files):
                 continue
             if 'pc_' in file:
                 ctrain_pc += 1
-                if ctrain_pc > 400:
-                    continue
+                # if ctrain_pc > 400:
+                #     continue
             else:
                 ctrain_tower += 1
     # val
@@ -161,8 +164,8 @@ for file in progressbar(files):
                 continue
             if 'pc_' in file:
                 cval_pc += 1
-                if cval_pc > 50:
-                    continue
+                # if cval_pc > 50:
+                #     continue
             else:
                 cval_tower += 1
     # test
@@ -174,8 +177,8 @@ for file in progressbar(files):
                 continue
             if 'pc_' in file:
                 ctest_pc += 1
-                if ctest_pc > 50:
-                    continue
+                # if ctest_pc > 50:
+                #     continue
             else:
                 ctest_tower += 1
     else:

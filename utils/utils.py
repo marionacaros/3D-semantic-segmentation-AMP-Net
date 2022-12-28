@@ -434,7 +434,7 @@ def save_checkpoint_segmen_model(name, task, epoch, epochs_since_improvement, ba
 
 
 def save_checkpoint(name, epoch, epochs_since_improvement, model, optimizer, accuracy, batch_size,
-                    learning_rate, n_points, weighing_method):
+                    learning_rate, n_points, weighing_method:None):
     state = {
         'model': model.state_dict(),
         'optimizer': optimizer.state_dict(),

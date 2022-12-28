@@ -34,13 +34,11 @@ def train(
         batch_size,
         epochs,
         learning_rate,
-        weighing_method,
-        beta,
         number_of_workers,
         model_checkpoint,
         c_sample):
     start_time = time.time()
-    c_weights = torch.FloatTensor([0.2, 0.2, 0.2, 0.2, 0.2]).to(device)
+    # c_weights = torch.FloatTensor([0.2, 0.2, 0.2, 0.2, 0.2]).to(device)
 
     # logging.info(f"Weighing method: {weighing_method}")
     logging.info(f"Constrained sampling: {c_sample}")
@@ -128,7 +126,6 @@ def train(
         epoch_train_loss = []
         ce_train_loss = []
         epoch_train_acc = []
-        epoch_train_acc_w = []
         targets_pos = []
         targets_neg = []
         epoch_val_loss = []
@@ -160,14 +157,14 @@ def train(
         # --------------------------------------------- train loop ---------------------------------------------
         for data in train_dataloader:
             metrics, targets, preds, last_epoch = train_loop(data, optimizer, ce_loss, pointnet, writer_train, True,
-                                                             c_weights, epoch, last_epoch)
+                                                             epoch, last_epoch)
             # compute metrics
-            metrics = get_accuracy(preds, targets, metrics, 'segmentation', c_weights)
+            metrics = get_accuracy(preds, targets, metrics, 'segmentation')
 
             # Segmentation labels:
             # 0 -> background (other classes we're not interested)
             # 1 -> tower
-            # 2 ->
+            # 2 -> cables
             # 3 -> low vegetation
             # 4 -> medium vegetation
             # 5 -> high vegetation
@@ -182,16 +179,17 @@ def train(
             ce_train_loss.append(metrics['ce_loss'].cpu().item())
             epoch_train_loss.append(metrics['loss'].cpu().item())
             epoch_train_acc.append(metrics['accuracy'])
-            epoch_train_acc_w.append(metrics['accuracy_w'])
+
+        # --------------------------------------------- val loop ---------------------------------------------
 
         with torch.no_grad():
             first_batch = True
             for data in val_dataloader:
                 metrics, targets, preds, last_epoch = train_loop(data, optimizer, ce_loss, pointnet, writer_val, False,
-                                                                 c_weights, epoch, last_epoch, first_batch)
+                                                                 epoch, last_epoch, first_batch)
                 first_batch = False
 
-                metrics = get_accuracy(preds, targets, metrics, 'segmentation', c_weights)
+                metrics = get_accuracy(preds, targets, metrics, 'segmentation')
 
                 iou['bckg_val'].append(get_iou_obj(targets, preds, 0))
                 iou['tower_val'].append(get_iou_obj(targets, preds, 1))
@@ -226,8 +224,6 @@ def train(
         writer_val.add_scalar('accuracy', np.mean(epoch_val_acc), epoch)
         writer_val.add_scalar('epochs_since_improvement', epochs_since_improvement, epoch)
         writer_val.add_scalar('learning_rate', optimizer.param_groups[0]['lr'], epoch)
-        # writer_train.add_scalar('c_weights', c_weights[1].cpu(), epoch)
-        # writer_val.add_scalar('c_weights', c_weights[0].cpu(), epoch)
         # if task == 'segmentation':
         writer_train.add_scalar('_iou_tower', np.mean(iou['tower_train']), epoch)
         writer_val.add_scalar('_iou_tower', np.mean(iou['tower_val']), epoch)
@@ -255,7 +251,7 @@ def train(
             name = now.strftime("%m-%d-%H:%M") + '_seg' + NAME
             save_checkpoint(name, epoch, epochs_since_improvement, pointnet,
                             optimizer, metrics['accuracy'],
-                            batch_size, learning_rate, n_points, weighing_method)
+                            batch_size, learning_rate, n_points)
             epochs_since_improvement = 0
             best_vloss = np.mean(epoch_val_loss)
 
@@ -270,27 +266,24 @@ def train(
 
 
 def train_loop(data, optimizer, ce_loss, pointnet, w_tensorboard=None, train=True,
-               c_weights=torch.Tensor(), epoch=0, last_epoch=0, first_batch_val=False):
+               epoch=0, last_epoch=0, first_batch_val=False):
     """
 
     :return:
     metrics, targets, preds, last_epoch
     """
-    metrics = {'accuracy':[]}
+    metrics = {'accuracy': []}
     pc, targets, filenames = data
+    pc, targets = pc.to(device), targets.to(device)  # [batch, n_samples, dims], [batch, n_samples]
 
     # Pytorch accumulates gradients. We need to clear them out before each instance
     optimizer.zero_grad()
-
     if train:
         pointnet = pointnet.train()
     else:
         pointnet = pointnet.eval()
 
-    # points = points.view(batch_size, n_points, -1).to(device)  # [batch, n_samples, dims]
-    # targets = targets.view(batch_size, -1).to(device)  # [batch, n_samples]
-    pc, targets = pc.to(device), targets.to(device)  # [batch, n_samples, dims], [batch, n_samples]
-
+    # PointNet model
     logits, feat_transform = pointnet(pc)
 
     # CrossEntropy loss
@@ -336,9 +329,6 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=64, help='batch size')
     parser.add_argument('--epochs', type=int, default=80, help='number of epochs')
     parser.add_argument('--learning_rate', type=float, default=0.001, help='learning rate')
-    parser.add_argument('--weighing_method', type=str, default='EFS',
-                        help='sample weighing method: ISNS or INS or EFS')
-    parser.add_argument('--beta', type=float, default=0.999, help='model checkpoint path')
     parser.add_argument('--number_of_workers', type=int, default=4, help='number of workers for the dataloader')
     parser.add_argument('--model_checkpoint', type=str, default='', help='model checkpoint path')
     parser.add_argument('--c_sample', type=bool, default=False, help='use constrained sampling')
@@ -356,8 +346,6 @@ if __name__ == '__main__':
           args.batch_size,
           args.epochs,
           args.learning_rate,
-          args.weighing_method,
-          args.beta,
           args.number_of_workers,
           args.model_checkpoint,
           args.c_sample)

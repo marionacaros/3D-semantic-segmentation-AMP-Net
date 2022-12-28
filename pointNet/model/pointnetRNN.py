@@ -39,9 +39,7 @@ class TransformationNet(nn.Module):
         x = self.fc_3(x)
 
         identity_matrix = torch.eye(self.output_dim)
-
-        if torch.cuda.is_available():
-            identity_matrix = identity_matrix.to(self.device)
+        identity_matrix = identity_matrix.to(self.device)
 
         x = x.view(-1, self.output_dim, self.output_dim)
         x = x + identity_matrix
