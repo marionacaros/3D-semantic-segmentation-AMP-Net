@@ -47,14 +47,13 @@ class TransformationNet(nn.Module):
 
 class BasePointNet(nn.Module):
 
-    def __init__(self, point_dimension, return_local_features=False, dataset='', device='cpu'):
+    def __init__(self, point_dimension, return_local_features=False, device='cuda'):
         super(BasePointNet, self).__init__()
-        self.dataset = dataset
         self.return_local_features = return_local_features
         self.input_transform = TransformationNet(input_dim=point_dimension, output_dim=point_dimension, device=device)
         self.feature_transform = TransformationNet(input_dim=64, output_dim=64, device=device)
 
-        self.conv_1 = nn.Conv1d(7, 64, 1, bias=False)  # 7 channels to take I, NDVI, RGB into account
+        self.conv_1 = nn.Conv1d(9, 64, 1, bias=False)  # 7 channels to take I, NDVI, RGB into account
         self.conv_2 = nn.Conv1d(64, 64, 1, bias=False)
         self.conv_3 = nn.Conv1d(64, 64, 1, bias=False)
         self.conv_4 = nn.Conv1d(64, 128, 1, bias=False)
@@ -72,8 +71,7 @@ class BasePointNet(nn.Module):
         x_tnet = x[:, :, :2]  # only apply T-NET to x and y
         input_transform = self.input_transform(x_tnet)
         x_tnet = torch.bmm(x_tnet, input_transform)  # Performs a batch matrix-matrix product
-        x_tnet = torch.cat([x_tnet, x[:, :, 2].unsqueeze(2), x[:, :, 4].unsqueeze(2)], dim=2)  # concat z and intensity
-        x_tnet = torch.cat([x_tnet, x[:, :, 6].unsqueeze(2), x[:, :, 7].unsqueeze(2), x[:, :, 9].unsqueeze(2)],dim=2)  # concat Green Blue NDVI
+        x_tnet = torch.cat([x_tnet, x[:, :, 2:]], dim=2)  # concat z and intensity
         x_tnet = x_tnet.transpose(2, 1)  # [batch, dims, n_points]
 
         x = F.relu(self.bn_1(self.conv_1(x_tnet)))
@@ -99,14 +97,14 @@ class BasePointNet(nn.Module):
             return global_feature, feature_transform
 
 
-class ClassificationPointNet_IGBVI(nn.Module):
+class ClassificationPointNet(nn.Module):
 
     def __init__(self, num_classes, dropout=0.3, point_dimension=3, dataset='', device='cpu'):
-        super(ClassificationPointNet_IGBVI, self).__init__()
+        super(ClassificationPointNet, self).__init__()
         self.dataset = dataset
 
         self.base_pointnet = BasePointNet(return_local_features=False, point_dimension=point_dimension,
-                                          dataset=self.dataset, device=device)
+                                          device=device)
 
         self.fc_1 = nn.Linear(256, 128, bias=False)
         self.fc_2 = nn.Linear(128, 64, bias=False)
@@ -127,13 +125,13 @@ class ClassificationPointNet_IGBVI(nn.Module):
         return F.log_softmax(self.fc_3(x), dim=1), feature_transform
 
 
-class SegmentationPointNet_IGBVI(nn.Module):
+class SegmentationPointNet(nn.Module):
 
-    def __init__(self, num_classes, point_dimension=3):
-        super(SegmentationPointNet_IGBVI, self).__init__()
-        self.base_pointnet = BasePointNet(return_local_features=True, point_dimension=point_dimension)
+    def __init__(self, num_classes, point_dimension=3, device='cuda'):
+        super(SegmentationPointNet, self).__init__()
+        self.base_pointnet = BasePointNet(return_local_features=True, point_dimension=point_dimension, device=device)
 
-        self.conv_1 = nn.Conv1d(512+64, 256, 1)  # 256+64
+        self.conv_1 = nn.Conv1d(320, 256, 1)  # 256+64
         self.conv_2 = nn.Conv1d(256, 128, 1)
         self.conv_3 = nn.Conv1d(128, 64, 1)
         self.conv_4 = nn.Conv1d(64, num_classes, 1)

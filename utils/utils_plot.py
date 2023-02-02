@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import os
 from matplotlib.colors import ListedColormap
 import numpy as np
+from matplotlib.lines import Line2D
 
 
 def plot_losses(train_loss, test_loss, save_to_file=None):
@@ -68,7 +69,7 @@ def plot_3d_subplots(points_tNet, fileName, points_i):
     plt.close()
 
 
-def plot_hist(points, rdm_num):
+def plot_hist2D(points, name='hist'):
     n_bins = 50
     # fig, axs = plt.subplots(1, 2, sharey=True, tight_layout=True)
     # # We can set the number of bins with the *bins* keyword argument.
@@ -82,32 +83,101 @@ def plot_hist(points, rdm_num):
     fig, ax = plt.subplots(tight_layout=True)
     hist = ax.hist2d(points[0, :], points[1, :], bins=n_bins)
     fig.colorbar(hist[3], ax=ax)
-    # plt.show()
     directory = 'figures'
-    name = 'hist_tNet_out_' + str(rdm_num)
-    plt.savefig(os.path.join(directory, name), bbox_inches='tight', dpi=100)
+    plt.savefig(os.path.join(directory, name+'.png'), bbox_inches='tight', dpi=100)
     plt.close()
 
 
-def plot_kmens_sequence_tensorboard(pc, writer_tensorboard, filename, i_w, title, n_clusters=None):
-    ax = plt.axes(projection='3d', xlim=(0, 1), ylim=(0, 1), zlim=(0, 0.3))
-    labels = pc[:, 3] == 15
-    # convert array of booleans to array of integers
-    labels = labels.numpy().astype(int)
-    cmap = plt.cm.get_cmap('winter')
-    sc = ax.scatter(pc[:, 0], pc[:, 1], pc[:, 2], c=labels, s=10, marker='o', cmap=cmap.reversed(), vmin=0, vmax=1)
-    tag = str(n_clusters) + 'k-means_3Dxy' + filename.split('/')[-1]
-    plt.title(title)
-    writer_tensorboard.add_figure(tag, plt.gcf(), i_w)
+def plot_hist(points, name):
+    n_bins = 50
+    # fig = plt.figure(tight_layout=True, figsize=[10,10])
+    plt.hist(points, bins=n_bins)
+    directory = 'figures'
+    plt.savefig(os.path.join(directory, name+'.png'), bbox_inches='tight', dpi=100)
+    plt.close()
+
+
+def plot_pointcloud_with_labels(pc, labels, targets, ious, name, path_plot='', point_size=1):
+    """# Segmentation labels:
+    # 0 -> background (other classes we're not interested)
+    # 1 -> tower
+    # 2 -> cables
+    # 3 -> low vegetation
+    # 4 -> high vegetation
+    # 5 -> other towers"""
+
+    labels = labels.astype(int)
+    fig = plt.figure(figsize=[14, 6])
+
+    # colormap
+    viridisBig = plt.cm.get_cmap('viridis', 10)
+    newcolors = viridisBig(np.linspace(0, 0.8, 6))
+    orange = np.array([256 / 256, 128 / 256, 0 / 256, 1])  # orange
+    blue = np.array([0 / 256, 0 / 256, 1, 0.7])
+    purple = np.array([127 / 256, 0 / 256, 250 / 256, 1])
+    gray = np.array([60 / 256, 60 / 256, 60 / 256, 1])  # gray
+    newcolors[:1, :] = orange
+    newcolors[1:2, :] = purple
+    newcolors[2:3, :] = blue
+    newcolors[3:4, :] = np.array([151 / 256, 188 / 256, 65 / 256, 0.05])  # green
+    newcolors[4:5, :] = np.array([200 / 256, 250 / 256, 90 / 256, 0.05])  # light green
+    # newcolors[5:, :] = gray
+    cmap = ListedColormap(newcolors)
+
+    # =============
+    # First subplot
+    # =============
+    ax = fig.add_subplot(1, 2, 1, projection='3d', xlim=(-1, 1), ylim=(-1, 1), zlim=(0, max(pc[:, 2])))
+    sc = ax.scatter(pc[:, 0], pc[:, 1], pc[:, 2], c=labels, s=point_size, marker='o', cmap=cmap, vmin=0, vmax=5)
+    # plt.colorbar(sc, fraction=0.03, pad=0.1)
+    plt.title('Predicted Tower pts: ' + str(len(labels[labels == 1])))
+
+    # ==============
+    # Second subplot
+    # ==============
+    ax = fig.add_subplot(1, 2, 2, projection='3d', xlim=(-1, 1), ylim=(-1, 1), zlim=(0, max(pc[:, 2])))
+    sc2 = ax.scatter(pc[:, 0], pc[:, 1], pc[:, 2], c=targets, s=point_size, marker='o', cmap=cmap, vmin=0, vmax=5)
+    # plt.colorbar(sc2, fraction=0.03, pad=0.1)
+    plt.title('GT Tower pts: ' + str(len(targets[targets == 1])))
+
+    # Title
+    xstr = lambda x: "None" if x is None else str(round(x, 2))
+    plt.suptitle("Preds vs. Ground Truth #pts=" + str(len(pc)) +
+                 ' IoU: [pylon=' + xstr(ious[0]) + ', lines=' + xstr(ious[1]) + ', mIoU=' + xstr(ious[2]) + ']\n',
+                 fontsize=16)
+
+    # Legend
+    # ==============
+    legend_elements = [
+        Line2D([0], [0], marker='o', color='w', label='Pylon', markerfacecolor=purple, markersize=10),
+        # Line2D([0], [0], marker='o', color='w', label='Other tower', markerfacecolor=gray, markersize=10),
+        Line2D([0], [0], marker='o', color='w', label='Power lines', markerfacecolor=blue, markersize=10),
+        Line2D([0], [0], marker='o', color='w', label='High veg',
+               markerfacecolor=np.array([200 / 256, 250 / 256, 90 / 256, 1]), markersize=10),
+        Line2D([0], [0], marker='o', color='w', label='Low veg',
+               markerfacecolor=np.array([151 / 256, 188 / 256, 65 / 256, 1]), markersize=10),
+        Line2D([0], [0], marker='o', color='w', label='Other', markerfacecolor=orange, markersize=10),
+    ]
+
+    ax.legend(handles=legend_elements, loc='center right', bbox_to_anchor=(1.35, 0.5))  # , bbox_to_anchor=(1.04, 0.5)
+    fig.set_dpi(200)
+    fig.tight_layout(pad=0.4)
+    fig.subplots_adjust(right=0.85)
+    plt.gcf()
+    if path_plot:
+        plt.savefig(os.path.join(path_plot, name) + '.png')  # str(len(labels[labels==1])) +
+
+    fig.clear()
+    plt.close(fig)
 
 
 def plot_pc_tensorboard(pc, labels, writer_tensorboard, tag, step):
-    ax = plt.axes(projection='3d', xlim=(0, 1), ylim=(0, 1), zlim=(0, 0.3))
+    ax = plt.axes(projection='3d', zlim=(0, 0.3)) #xlim=(0, 1), ylim=(0, 1)
     labels = labels.numpy().astype(int)
     viridisBig = plt.cm.get_cmap('viridis', 10)
     newcolors = viridisBig(np.linspace(0, 0.75, 6))
-    newcolors[:1, :] = np.array([255/256, 165/256, 0/256, 1])  # orange
-    newcolors[3:4, :] = np.array([102/256, 256/256, 178/256, 1])  # light green
+    newcolors[:1, :] = np.array([255 / 256, 165 / 256, 0 / 256, 1])  # orange
+    newcolors[3:4, :] = np.array([102 / 256, 256 / 256, 178 / 256, 1])  # light green
     cmap = ListedColormap(newcolors)
     sc = ax.scatter(pc[:, 0], pc[:, 1], pc[:, 2], c=labels, s=7, marker='o', cmap=cmap, vmin=0, vmax=5)
     plt.colorbar(sc, fraction=0.02, pad=0.1)
@@ -115,24 +185,6 @@ def plot_pc_tensorboard(pc, labels, writer_tensorboard, tag, step):
     fig = plt.gcf()
     fig.set_dpi(100)
     writer_tensorboard.add_figure(tag, fig, global_step=step)
-
-
-def plot_pointcloud_with_labels(pc, labels, iou_tower, name, path_plot=''):
-
-    ax = plt.axes(projection='3d', xlim=(0, 1), ylim=(0, 1), zlim=(0, max(pc[:, 2])))
-    labels = labels.numpy().astype(int)
-    viridisBig = plt.cm.get_cmap('viridis', 10)
-    newcolors = viridisBig(np.linspace(0, 0.75, 6))
-    newcolors[:1, :] = np.array([255 / 256, 165 / 256, 0 / 256, 1])  # orange
-    newcolors[3:4, :] = np.array([102 / 256, 256 / 256, 178 / 256, 1])  # light green
-    cmap = ListedColormap(newcolors)
-    sc = ax.scatter(pc[:, 0], pc[:, 1], pc[:, 2], c=labels, s=5, marker='o', cmap=cmap, vmin=0, vmax=5)
-    plt.colorbar(sc, fraction=0.02, pad=0.1)
-    plt.title('Point cloud - ' + str(len(pc)) + ' p -' + ' IoU tower: ' + str(iou_tower))
-    fig = plt.gcf()
-    fig.set_dpi(100)
-    if path_plot:
-        plt.savefig(os.path.join(path_plot, name))
 
 
 def plot_2d_sequence_tensorboard(pc, writer_tensorboard, filename, i_w):
@@ -150,3 +202,134 @@ def plot_2d_sequence_tensorboard(pc, writer_tensorboard, filename, i_w):
     tag = 'k-means_2Dxy_' + filename.split('/')[-1]
     # plt.title('PC')
     writer_tensorboard.add_figure(tag, plt.gcf(), i_w)
+
+
+def plot_3d_sequence_tensorboard(pc, writer_tensorboard, filename, i_w, title, n_clusters=None):
+
+    ax = plt.axes(projection='3d', xlim=(0, 1), ylim=(0, 1))
+
+    segment_labels = pc[:, 3]
+    segment_labels[segment_labels == 15] = 100
+    segment_labels[segment_labels == 14] = 200
+    segment_labels[segment_labels == 3] = 300  # low veg
+    segment_labels[segment_labels == 4] = 300  # med veg
+    segment_labels[segment_labels == 5] = 400
+    # segment_labels[segment_labels == 18] = 500
+    segment_labels[segment_labels < 100] = 0
+    segment_labels = (segment_labels / 100)
+
+    # convert array of booleans to array of integers
+    labels = segment_labels.numpy().astype(int)
+
+    # colormap
+    viridisBig = plt.cm.get_cmap('viridis', 10)
+    newcolors = viridisBig(np.linspace(0, 0.8, 6))
+    orange = np.array([256 / 256, 128 / 256, 0 / 256, 1])  # orange
+    blue = np.array([0 / 256, 0 / 256, 1, 1])
+    purple = np.array([127 / 256, 0 / 256, 250 / 256, 1])
+    gray = np.array([60 / 256, 60 / 256, 60 / 256, 1])  # gray
+    newcolors[:1, :] = orange
+    newcolors[1:2, :] = purple
+    newcolors[2:3, :] = blue
+    newcolors[3:4, :] = np.array([151 / 256, 188 / 256, 65 / 256, 1])  # green
+    newcolors[4:5, :] = np.array([200 / 256, 250 / 256, 90 / 256, 1])  # light green
+    cmap = ListedColormap(newcolors)
+
+    sc = ax.scatter(pc[:, 0], pc[:, 1], pc[:, 2], c=labels, s=3, marker='o', cmap=cmap, vmin=0, vmax=5)
+    tag = str(n_clusters) + 'c-means_3Dxy' + filename.split('/')[-1]
+    plt.title(title)
+
+    # Legend
+    # ==============
+    legend_elements = [
+        Line2D([0], [0], marker='o', color='w', label='Pylon', markerfacecolor=purple, markersize=10),
+        # Line2D([0], [0], marker='o', color='w', label='Other tower', markerfacecolor=gray, markersize=10),
+        Line2D([0], [0], marker='o', color='w', label='Power lines', markerfacecolor=blue, markersize=10),
+        Line2D([0], [0], marker='o', color='w', label='High veg',
+               markerfacecolor=np.array([200 / 256, 250 / 256, 90 / 256, 1]), markersize=10),
+        Line2D([0], [0], marker='o', color='w', label='Low veg',
+               markerfacecolor=np.array([151 / 256, 188 / 256, 65 / 256, 1]), markersize=10),
+        Line2D([0], [0], marker='o', color='w', label='Other', markerfacecolor=orange, markersize=10),
+    ]
+
+    ax.legend(handles=legend_elements, loc='center right', bbox_to_anchor=(1.45, 0.5))  # , bbox_to_anchor=(1.04, 0.5)
+
+    directory = '/home/m.caros/work/objectDetection/figures/kmeans_seq/'
+    name = filename + '_' + str(i_w) + '.png'
+    plt.savefig(directory + name, bbox_inches='tight', dpi=100)
+
+    writer_tensorboard.add_figure(tag, plt.gcf(), i_w)
+    plt.close()
+
+
+def plot_class_points(inFile, fileName, selClass, save_plot=False, point_size=40, save_dir='figures/'):
+    """Plot point cloud of a specific class"""
+
+    # get class
+    selFile = inFile
+    selFile.points = inFile.points[np.where(inFile.classification == selClass)]
+
+    # plot
+    fig = plt.figure(figsize=[20, 10])
+    ax = plt.axes(projection='3d')
+    sc = ax.scatter(selFile.x, selFile.y, selFile.z, c=selFile.z, s=point_size, marker='o', cmap="Spectral")
+    plt.colorbar(sc)
+    plt.title('Points of class %i of file %s' % (selClass, fileName))
+    if save_plot:
+        directory = save_dir
+        name = 'point_cloud_class_' + str(selClass) + '_' + fileName + '.png'
+        plt.savefig(directory + name, bbox_inches='tight', dpi=100)
+    plt.show()
+
+
+def plot_2d_class_points(inFile, fileName, selClass, save_plot=False, point_size=40, save_dir='figures/'):
+    """Plot point cloud of a specific class"""
+
+    # get class
+    selFile = inFile
+    selFile.points = inFile.points[np.where(inFile.classification == selClass)]
+
+    # plot
+    fig = plt.figure(figsize=[10, 5])
+    sc = plt.scatter(selFile.x, selFile.y, c=selFile.z, s=point_size, marker='o', cmap="viridis")
+    plt.colorbar(sc)
+    plt.title('Points of class %i of file %s' % (selClass, fileName))
+    if save_plot:
+        directory = save_dir
+        name = 'point_cloud_class_' + str(selClass) + '_' + fileName + '.png'
+        plt.savefig(directory + name, bbox_inches='tight', dpi=100)
+    plt.show()
+
+
+def plot_3d_coords(coords, fileName='', selClass=[], save_plot=False, point_size=40, save_dir='figures/',
+                   c_map="Spectral",
+                   show=True, figsize=[20, 10]):
+    """Plot of point cloud. Can be filtered by a specific class"""
+
+    # plot
+    fig = plt.figure(figsize=figsize)
+    ax = plt.axes(projection='3d')
+    sc = ax.scatter(coords[0], coords[1], coords[2], c=coords[2], s=point_size, marker='o', cmap=c_map)
+    plt.colorbar(sc)
+    plt.title('Point cloud - file %s' % (fileName))
+    if save_plot:
+        directory = save_dir
+        if selClass:
+            name = 'point_cloud_class_' + str(selClass) + '_' + fileName + '.png'
+        else:
+            name = 'point_cloud_' + fileName + '.png'
+        plt.savefig(os.path.join(directory, name), bbox_inches='tight', dpi=100)
+    if show:
+        plt.show()
+    else:
+        plt.close()
+
+
+def plot_2d_coords(coords, ax=[], save_plot=False, point_size=40, figsize=[10, 5], save_dir='figures/'):
+    if not ax:
+        fig = plt.figure(figsize=figsize)
+        sc = plt.scatter(coords[0], coords[2], c=coords[1], s=point_size, marker='o', cmap="viridis")
+        plt.colorbar(sc)
+    else:
+        ax.scatter(coords[1], coords[2], c=coords[2], s=point_size, marker='o', cmap="viridis")
+        ax.title.set_text('Points=%i' % (len(coords[1])))

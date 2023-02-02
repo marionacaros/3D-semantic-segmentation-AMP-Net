@@ -5,8 +5,8 @@ import time
 from torch.utils.data import random_split
 from torch.utils.tensorboard import SummaryWriter
 from torchsummary import summary
-from pointNet.datasets import LidarKmeansDataset4Train
-from pointNet.model.pointnetRNN import BasePointNet, SegmentationWithGRU, ClassificationFromGRU
+from pointNet.datasets import LidarKmeansDataset
+from pointNet.model.pointnetAtt import BasePointNet, SegmentationWithGRU, ClassificationFromGRU
 import datetime
 import warnings
 from pointNet.collate_fns import *
@@ -26,6 +26,7 @@ else:
 
 GLOBAL_FEAT_SIZE = 256
 HIDDEN_SIZE = 64
+NUM_CLASSES=5
 
 
 def train_gru(task: str,
@@ -45,8 +46,6 @@ def train_gru(task: str,
               use_kmeans: bool = True,
               ):
     start_time = time.time()
-    # print(f"Weighing method: {weighing_method}")
-    c_weights = torch.FloatTensor([0.2, 0.2, 0.2, 0.2, 0.2]).to(device)
 
     # Tensorboard location and plot names
     now = datetime.datetime.now()
@@ -58,7 +57,7 @@ def train_gru(task: str,
     if task == 'classification':
         name = 'files'
     elif task == 'segmentation':
-        name = 'seg_files_kmeans'
+        name = 'seg_files'
 
     with open(os.path.join(path_list_files, 'train_' + name + '.txt'), 'r') as f:
         train_files = f.read().splitlines()
@@ -66,7 +65,7 @@ def train_gru(task: str,
         val_files = f.read().splitlines()
     print(f'Dataset folder: {dataset_folder}')
 
-    NAME = 'GRUg' + str(GLOBAL_FEAT_SIZE) + 'h' + str(HIDDEN_SIZE)
+    NAME = 'GRU' + str(GLOBAL_FEAT_SIZE) + 'h' + str(HIDDEN_SIZE)
 
     # Datasets train / val / test
     if task == 'classification':
@@ -80,29 +79,25 @@ def train_gru(task: str,
         print(f"Tensorboard runs: {writer_train.get_logdir()}")
 
     # Initialize datasets
-    train_dataset = LidarKmeansDataset4Train(dataset_folder=dataset_folder,
-                                             task=task,
-                                             number_of_points=n_points,
-                                             number_of_windows=n_windows,
-                                             files=train_files,
-                                             fixed_num_points=c_sample,
-                                             c_sample=False)
-    val_dataset = LidarKmeansDataset4Train(dataset_folder=dataset_folder,
-                                           task=task,
-                                           number_of_points=n_points,
-                                           number_of_windows=n_windows,
-                                           files=val_files,
-                                           fixed_num_points=c_sample,
-                                           c_sample=False)
+    train_dataset = LidarKmeansDataset(dataset_folder=dataset_folder,
+                                       task=task,
+                                       number_of_points=n_points,
+                                       files=train_files,
+                                       fixed_num_points=c_sample)
 
-    print(f'Towers PC in train: {train_dataset.len_towers}')
-    print(f'Landscape PC in train: {train_dataset.len_landscape}')
-    print(
-        f'Proportion towers/landscape: {round((train_dataset.len_towers / (train_dataset.len_towers + train_dataset.len_landscape)) * 100, 3)}%')
-    print(f'Towers PC in val: {val_dataset.len_towers}')
-    print(f'Landscape PC in val: {val_dataset.len_landscape}')
-    print(
-        f'Proportion towers/landscape: {round((val_dataset.len_towers / (val_dataset.len_towers + val_dataset.len_landscape)) * 100, 3)}%')
+    val_dataset = LidarKmeansDataset(dataset_folder=dataset_folder,
+                                     task=task,
+                                     number_of_points=n_points,
+                                     files=val_files,
+                                     fixed_num_points=c_sample)
+    # print(f'Towers PC in train: {train_dataset.len_towers}')
+    # print(f'Landscape PC in train: {train_dataset.len_landscape}')
+    # print(
+    #     f'Proportion towers/landscape: {round((train_dataset.len_towers / (train_dataset.len_towers + train_dataset.len_landscape)) * 100, 3)}%')
+    # print(f'Towers PC in val: {val_dataset.len_towers}')
+    # print(f'Landscape PC in val: {val_dataset.len_landscape}')
+    # print(
+    #     f'Proportion towers/landscape: {round((val_dataset.len_towers / (val_dataset.len_towers + val_dataset.len_landscape)) * 100, 3)}%')
     print(f'Samples for training: {len(train_dataset)}')
     print(f'Samples for validation: {len(val_dataset)}')
     print(f'Task: {train_dataset.task}')
@@ -128,9 +123,9 @@ def train_gru(task: str,
                             global_feat_dim=GLOBAL_FEAT_SIZE,
                             device=device)
     if task == 'classification':
-        pred_net = ClassificationFromGRU(num_classes=6)
+        pred_net = ClassificationFromGRU(num_classes=NUM_CLASSES)
     elif task == 'segmentation':
-        pred_net = SegmentationWithGRU(num_classes=6, global_feat_size=GLOBAL_FEAT_SIZE, hidden_size=HIDDEN_SIZE,
+        pred_net = SegmentationWithGRU(num_classes=NUM_CLASSES, global_feat_size=GLOBAL_FEAT_SIZE, hidden_size=HIDDEN_SIZE,
                                        device=device)
     # Models to device
     pointnet.to(device)
@@ -139,6 +134,7 @@ def train_gru(task: str,
 
     best_vloss = 1_000_000.
     epochs_since_improvement = 0
+    c_weights = torch.FloatTensor([1, 2, 2, 1, 1]).to(device)
 
     if task == 'classification':
         # todo add classes to samples_per_cls
@@ -209,7 +205,7 @@ def train_gru(task: str,
         }
         last_epoch = -1
 
-        if epochs_since_improvement == 10:
+        if epochs_since_improvement == 40:
             adjust_learning_rate(optimizer_pointnet, 0.5)
             adjust_learning_rate(optimizer_pred, 0.5)
 
@@ -235,7 +231,7 @@ def train_gru(task: str,
                 iou['tower_train'].append(get_iou_obj(targets, preds, 1))
                 iou['cables_train'].append(get_iou_obj(targets, preds, 2))
                 iou['low_veg_train'].append(get_iou_obj(targets, preds, 3))
-                iou['med_veg_train'].append(get_iou_obj(targets, preds, 4))
+                # iou['med_veg_train'].append(get_iou_obj(targets, preds, 4))
                 iou['high_veg_train'].append(get_iou_obj(targets, preds, 5))
 
             # tensorboard
@@ -262,7 +258,7 @@ def train_gru(task: str,
                     iou['tower_val'].append(get_iou_obj(targets, preds, 1))
                     iou['cables_val'].append(get_iou_obj(targets, preds, 2))
                     iou['low_veg_val'].append(get_iou_obj(targets, preds, 3))
-                    iou['med_veg_val'].append(get_iou_obj(targets, preds, 4))
+                    # iou['med_veg_val'].append(get_iou_obj(targets, preds, 4))
                     iou['high_veg_val'].append(get_iou_obj(targets, preds, 5))
 
                 # tensorboard
@@ -328,7 +324,7 @@ def train_gru(task: str,
 
         else:
             epochs_since_improvement += 1
-        if epochs_since_improvement > 40:
+        if epochs_since_improvement > 100:
             exit()
 
     # plot_losses(train_loss, test_loss, save_to_file=os.path.join(output_folder, 'loss_plot.png'))
@@ -359,7 +355,7 @@ def train_loop(data, optimizer_rnn, optimizer_pred, ce_loss, pointnet, gru_model
     metrics, targets, preds, last_epoch
     """
     metrics = {}
-    pc_w, targets, filenames = data
+    pc_w, targets, filenames, _ = data
     # classifications pc_w shapes: [b, n_samples, dims, w_len], [b, w_len], [b]
     # segmentation pc_w shapes : [b, n_samples, dims, w_len], [b, n_samples], [b]
 
@@ -445,21 +441,23 @@ def train_loop(data, optimizer_rnn, optimizer_pred, ce_loss, pointnet, gru_model
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('task', type=str, choices=['classification', 'segmentation'], help='type of task')
-    parser.add_argument('dataset_folder', type=str, help='path to the dataset folder')
+    parser.add_argument('--task', type=str, choices=['classification', 'segmentation'], help='type of task',
+                        default='segmentation')
+    parser.add_argument('--dataset_path', type=str, help='path to the dataset folder',
+                        default='/dades/LIDAR/towers_detection/datasets/kmeans_100x100c9_2048')
     parser.add_argument('--path_list_files', type=str,
-                        default='train_test_files/RGBN_x10_80x80_kmeans',
+                        default='train_test_files/RGBN_100x100_old/RGBN_100x100_kmeans',
                         help='output folder')
     parser.add_argument('--output_folder', type=str, default='pointNet/results', help='output folder')
     parser.add_argument('--number_of_points', type=int, default=2048, help='number of points per cloud')
-    parser.add_argument('--number_of_windows', type=int, default=20, help='number of maximum windows per cloud')
-    parser.add_argument('--batch_size', type=int, default=64, help='batch size')
-    parser.add_argument('--epochs', type=int, default=200, help='number of epochs')
-    parser.add_argument('--learning_rate', type=float, default=0.001, help='learning rate')
+    parser.add_argument('--number_of_windows', type=int, default=9, help='number of maximum windows per cloud')
+    parser.add_argument('--batch_size', type=int, default=32, help='batch size')
+    parser.add_argument('--epochs', type=int, default=500, help='number of epochs')
+    parser.add_argument('--learning_rate', type=float, default=0.0005, help='learning rate')
     parser.add_argument('--weighing_method', type=str, default='EFS',
                         help='sample weighing method: ISNS or INS or EFS')
     parser.add_argument('--beta', type=float, default=0.999, help='model checkpoint path')
-    parser.add_argument('--number_of_workers', type=int, default=1, help='number of workers for the dataloader')
+    parser.add_argument('--number_of_workers', type=int, default=0, help='number of workers for the dataloader')
     parser.add_argument('--model_checkpoint', type=str, default='', help='model checkpoint path')
     parser.add_argument('--c_sample', type=bool, default=False, help='use constrained sampling')
 
@@ -470,7 +468,7 @@ if __name__ == '__main__':
     #                     datefmt='%Y-%m-%d %H:%M:%S')
 
     train_gru(args.task,
-              args.dataset_folder,
+              args.dataset_path,
               args.path_list_files,
               args.output_folder,
               args.number_of_points,

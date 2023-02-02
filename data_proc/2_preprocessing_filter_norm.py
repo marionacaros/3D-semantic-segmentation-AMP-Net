@@ -20,14 +20,6 @@ def remove_ground_and_outliers(files_path, out_path, max_z=100.0, max_intensity=
     3- Remove outliers defined as points > max_z and points < 0
     4- Normalize data
     5- Remove terrain points (up to n_points points in point cloud)
-    6- Add constrained sampling flag at column 10
-
-    Point labels:
-    2 ➔ terreny
-    8 ➔ Punts clau del model
-    13 ➔ altres punts del terreny
-    24 ➔ solapament
-    135 (30) ➔ soroll del sensor
 
     It stores pickle files with preprocessed data
     """
@@ -95,7 +87,7 @@ def remove_ground_and_outliers(files_path, out_path, max_z=100.0, max_intensity=
                                 data_f.blue / 65536.0,                              # 7
                                 nir_arr / 65535.0,                                  # 8
                                 ndvi_arr,                                           # 9
-                                np.zeros(len(data_f.x)),                            # 10  constrained sampling flag
+                                np.zeros(len(data_f.x)),                            # 10
                                 data_f.z,                                           # 11
                                 data_f.x,                                           # 12
                                 data_f.y,                                           # 13
@@ -124,30 +116,6 @@ def remove_ground_and_outliers(files_path, out_path, max_z=100.0, max_intensity=
                 pc[:, 9] = (pc[:, 9] + 1) / 2
                 pc[:, 9] = np.clip(pc[:, 9], 0.0, 1.0)
 
-                # Check if points different from terrain < n_points
-                # len_pc = pc[pc[:, 3] != 2].shape[0]
-                # if 100 < len_pc < n_points:
-                #     # Get indices of ground points
-                #     labels = pc[:, 3]
-                #     i_terrain = [i for i in range(len(labels)) if labels[i] == 2.0]
-                #     # i_terrain = np.where(labels == 2.0, labels)
-                #     len_needed_p = n_points - len_pc
-                #     # if we have enough points of ground to cover missed points
-                #     if len_needed_p < len(i_terrain):
-                #         counters['keep_ground'] += 1
-                #         needed_i = random.sample(i_terrain, k=len_needed_p)
-                #     else:
-                #         needed_i = i_terrain
-                #         counters['need_ground'] += 1
-                #     points_needed_terrain = pc[needed_i, :]
-                #     # remove terrain points
-                #     pc = pc[pc[:, 3] != 2, :]
-                #     # store only needed terrain points
-                #     pc = np.concatenate((pc, points_needed_terrain), axis=0)
-                #
-                # elif len_pc >= n_points:
-                #     pc = pc[pc[:, 3] != 2, :]
-
                 # store files with n_points as minimum
                 if pc.shape[0] >= n_points:
                     counters['total_count'] += 1
@@ -175,80 +143,6 @@ def remove_ground_and_outliers(files_path, out_path, max_z=100.0, max_intensity=
     print(f'counter less than n_points: ', counters['missed'])
 
 
-def constrained_sampling(pc, n_points, TH_1=3.0, TH_2=8.0, counters={}):
-    """
-    Gradual sampling considering thresholds TH_1 and TH_2. It drops lower points and keeps higher points.
-    The goal is to remove noise caused by vegetation.
-    Constrained sampling flag is stored in position 10
-
-    :param pc: data to apply constrained sampling
-    :param n_points: minimum amount of point per PC
-    :param TH_1: first height threshold to sample
-    :param TH_2: second height threshold to sample
-    :param counters: dictionary with counters for info purposes
-
-    :return:pc_sampled, counters
-    """
-
-    # if number of points > n_points sampling is needed
-    if pc.shape[0] > n_points:
-        pc_veg = pc[pc[:, 2] <= TH_1]
-        pc_other = pc[pc[:, 2] > TH_1]
-        # Number of points above 3m < n_points
-        if pc_other.shape[0] < n_points:
-            end_veg_p = n_points - pc_other.shape[0]
-            counters['count_sample3'] += 1
-        else:
-            end_veg_p = n_points
-        # if num points in vegetation > points to sample
-        if pc_veg.shape[0] > end_veg_p:
-            # rdm sample points < thresh 1
-            sampling_indices = random.sample(range(0, pc_veg.shape[0]), k=end_veg_p)
-        else:
-            sampling_indices = range(pc_veg.shape[0])
-        # pc_veg = pc_veg[sampling_indices, :]
-        # sampled indices
-        pc_veg[sampling_indices, 10] = 1
-        pc_other[:, 10] = 1
-        pc_sampled = np.concatenate((pc_other, pc_veg), axis=0)
-        # print(f'--> sampled pc shape {pc_sampled.shape}')
-
-        # if we still have > n_points in point cloud
-        if pc_other.shape[0] > n_points:
-            pc_high_veg = pc[pc[:, 2] <= TH_2]
-            pc_other = pc[pc[:, 2] > TH_2]
-            pc_other[:, 10] = 1
-            # Number of points above 8m < n_points
-            if pc_other.shape[0] < n_points:
-                end_veg_p = n_points - pc_other.shape[0]
-                counters['count_sample8'] += 1
-            else:
-                end_veg_p = n_points
-            # if num points in vegetation > points to sample
-            if pc_high_veg.shape[0] > end_veg_p:
-                sampling_indices = random.sample(range(0, pc_high_veg.shape[0]), k=end_veg_p)
-                # pc_high_veg = pc_high_veg[sampling_indices, :]
-                pc_high_veg[sampling_indices, 10] = 1
-                pc_sampled = np.concatenate((pc_other, pc_high_veg), axis=0)
-            else:
-                pc_sampled = pc_other
-
-            # if we still have > n_points in point cloud
-            if pc_sampled.shape[0] > n_points:
-                # rdm sample all point cloud
-                sampling_indices = random.sample(range(0, pc_sampled.shape[0]), k=n_points)
-                # pc_sampled = pc_sampled[sampling_indices, :]
-                pc_sampled[:, 10] = 0
-                pc_sampled[sampling_indices, 10] = 1
-                counters['sample_all'] += 1
-
-    else:  # elif pc.shape[0] == n_points:
-        pc[:, 10] = 1
-        pc_sampled = pc
-
-    return pc_sampled, counters
-
-
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
@@ -270,7 +164,7 @@ if __name__ == '__main__':
             logging.info(f'Input path: {args.in_path}')
 
             # !!!!!!!!! IMPORTANT !!!!!!!!!
-            # First execute pdal_hag.sh  # to get HeightAboveGround
+            # First execute pdal on all files to get HeightAboveGround
 
             # ------ Remove ground, noise, outliers and normalize ------
             logging.info(f"1. Remove points of ground, noise and outliers, normalize"

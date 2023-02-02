@@ -1,12 +1,12 @@
 import argparse
-from utils import *
+from utils.utils import *
 import logging
 import time
 from alive_progress import alive_bar
 import hashlib
 import pickle
 
-logging.basicConfig(format='[ %(asctime)s %(levelname)s %(filename)20s() ] %(message)s',
+logging.basicConfig(format='[%(asctime)s %(levelname)s %(filename)20s()] %(message)s',
                     level=logging.INFO,
                     datefmt='%d-%m %H:%M:%S')
 
@@ -33,7 +33,7 @@ def store_las_file_from_pc(pc, fileName, path_las_dir, dataset, labels2remove=[1
 
     # Classification unsigned char 1 byte (max is 31)
     for label in labels2remove:
-        p_class[p_class == label] = 30  # sensor noise
+        p_class[p_class == int(label)] = 30
 
     las.classification = p_class
 
@@ -79,30 +79,29 @@ def load_data_and_split(w_size, in_data_path, dataset, out_path, noise_labels):
     with alive_bar(len(files), bar='filling', spinner='waves') as bar:
         for f in files:
             name_f = f.split('/')[-1].split('.')[0]
-            # todo check condition
-            if name_f in ["507678", "509679", "511700", "495677", "512679", "507677", "505679", "502678"]:
-                las_pc = laspy.read(f)
-                nir = las_pc.nir
-                red = las_pc.red
-                green = las_pc.green
-                blue = las_pc.blue
-                if dataset == 'BDN':
-                    nir = np.zeros(len(las_pc))
-                    red = np.zeros(len(las_pc))
-                    green = np.zeros(len(las_pc))
-                    blue = np.zeros(len(las_pc))
 
-                block_pc = np.vstack((las_pc.x, las_pc.y, las_pc.z, las_pc.classification,
-                                      las_pc.intensity,
-                                      red, green, blue,
-                                      nir))
-                # las_pc.return_number,
-                # las_pc.number_of_returns,
+            las_pc = laspy.read(f)
+            nir = las_pc.nir
+            red = las_pc.red
+            green = las_pc.green
+            blue = las_pc.blue
+            if dataset == 'BDN':
+                nir = np.zeros(len(las_pc))
+                red = np.zeros(len(las_pc))
+                green = np.zeros(len(las_pc))
+                blue = np.zeros(len(las_pc))
 
-                # each LAS file is split here
-                split_pointcloud(block_pc, f_name=name_f, dir=dir_name, path=save_path, w_size=w_size,
-                                 dataset=dataset, noise_labels=noise_labels)
-                bar()
+            block_pc = np.vstack((las_pc.x, las_pc.y, las_pc.z, las_pc.classification,
+                                  las_pc.intensity,
+                                  red, green, blue,
+                                  nir))
+            # las_pc.return_number,
+            # las_pc.number_of_returns,
+
+            # each LAS file is split here
+            split_pointcloud(block_pc, f_name=name_f, dir=dir_name, path=save_path, w_size=w_size,
+                             dataset=dataset, noise_labels=noise_labels)
+            bar()
 
 
 def split_pointcloud(pointcloud, f_name, dir='files_40x40', path='', w_size=[40, 40], dataset='', noise_labels=[135]):

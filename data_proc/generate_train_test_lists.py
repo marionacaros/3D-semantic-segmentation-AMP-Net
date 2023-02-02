@@ -1,3 +1,5 @@
+import pickle
+
 from progressbar import progressbar
 import os
 import glob
@@ -5,9 +7,10 @@ import random
 import json
 
 # --------------------------------- DATASET BLOCKS PARTITION  -----------------------------------------------
-# main_path = '/dades/LIDAR/towers_detection/datasets/kmeans_80x80_w16/*pt'
+main_path = '/dades/LIDAR/towers_detection/datasets/kmeans_100x100_cls_c9_2048/*pt'
+# main_path = '/dades/LIDAR/towers_detection/datasets/towers_100x100/*pkl'
 # main_path = '/dades/LIDAR/towers_detection/datasets/pc_towers_80x80_10p/normalized_2048/*pkl'
-main_path = '/dades/LIDAR/towers_detection/datasets/pc_towers_40x40_10p/normalized_2048/*pkl'
+# main_path = '/dades/LIDAR/towers_detection/datasets/test_inference_40x40CAT3/*pkl'
 list_f = glob.glob(main_path)
 random.shuffle(list_f)
 print(len(list_f))
@@ -111,8 +114,9 @@ with open(path + '/dataset_blocks_partition_BDN_towers.json', 'r') as f:
 
 # set variables
 RGBN = True
+# name = '_seg_files'
 name = '_cls_files'
-o_path = 'train_test_files/RGBN_x10_40x40/'
+o_path = 'train_test_files/RGBN_100x100_kmeans/'
 
 if RGBN:
     if not os.path.exists(o_path):
@@ -133,11 +137,19 @@ ctrain_tower = 0
 cval_tower = 0
 ctest_tower = 0
 
-# file_object = open(o_path + 'train' + name + '.txt', 'w')
-# file_object = open(o_path + 'val' + name + '.txt', 'w')
-# file_object = open(o_path + 'test' + name + '.txt', 'w')
+file_object = open(o_path + 'train' + name + '.txt', 'w')
+file_object = open(o_path + 'val' + name + '.txt', 'w')
+file_object = open(o_path + 'test' + name + '.txt', 'w')
 
 for file in progressbar(files):
+    powerline=False
+    # with open(file, 'rb') as f:
+    #     pc = pickle.load(f)
+    # labels = set(pc[:, 3].astype(int))
+    # if 15 in labels or 14 in labels or 18 in labels:
+    #     powerline = True
+    # else:
+    #     powerline = False
 
     blockName = file.split('_')[-2]  # block ie pt440650
     file = file.split('/')[-1]
@@ -147,9 +159,9 @@ for file in progressbar(files):
         out_name = 'train'
         if RGBN:
             out_name = o_path + 'train'
-            if 'BDN' in file:
-                continue
-            if 'pc_' in file:
+            # if 'BDN' in file:
+            #     continue
+            if not powerline:
                 ctrain_pc += 1
                 # if ctrain_pc > 400:
                 #     continue
@@ -160,9 +172,9 @@ for file in progressbar(files):
         out_name = 'val'
         if RGBN:
             out_name = o_path + 'val'
-            if 'BDN' in file:
-                continue
-            if 'pc_' in file:
+
+            # if 'pc_' in file:
+            if not powerline:
                 cval_pc += 1
                 # if cval_pc > 50:
                 #     continue
@@ -173,9 +185,8 @@ for file in progressbar(files):
         out_name = 'test'
         if RGBN:
             out_name = o_path + 'test'
-            if 'BDN' in file:
-                continue
-            if 'pc_' in file:
+
+            if not powerline:
                 ctest_pc += 1
                 # if ctest_pc > 50:
                 #     continue
@@ -184,10 +195,12 @@ for file in progressbar(files):
     else:
         continue
 
+    # if powerline:
     file_object = open(out_name + name + '.txt', 'a')
     file_object.write(file)
     file_object.write('\n')
     file_object.close()
+    powerline=False
 
 print(f'RGBN - Length train landscape files: {ctrain_pc}')
 print(f'RGBN - Length val landscape files: {cval_pc}')

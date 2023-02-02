@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import time
 import os
 from torch.utils.tensorboard import SummaryWriter
-from pointNet.datasets import LidarDatasetExpanded
+from pointNet.datasets import LidarDataset
 from pointNet.model.light_pointnet_256 import SegmentationPointNet
 # from pointNet.model.pointnet import SegmentationPointNet
 from utils.utils import *
@@ -27,7 +27,6 @@ else:
     device = 'cpu'
 
 GLOBAL_FEAT_SIZE = 256
-NUM_CLASES = 5
 
 
 def train(
@@ -42,6 +41,7 @@ def train(
         model_checkpoint,
         c_sample):
     start_time = time.time()
+
     logging.info(f"Constrained sampling: {c_sample}")
 
     # Tensorboard location and plot names
@@ -54,30 +54,32 @@ def train(
     with open(os.path.join(path_list_files, 'val_seg_files.txt'), 'r') as f:
         val_files = f.read().splitlines()
 
-    NAME = 'Base100_' + str(GLOBAL_FEAT_SIZE)
+    NAME = 'Base80x80_' + str(GLOBAL_FEAT_SIZE)
 
     writer_train = SummaryWriter(location + now.strftime("%m-%d-%H:%M") + 'seg_train' + NAME)
     writer_val = SummaryWriter(location + now.strftime("%m-%d-%H:%M") + 'seg_val' + NAME)
     logging.info(f"Tensorboard runs: {writer_train.get_logdir()}")
 
     # Initialize datasets
-    train_dataset = LidarDatasetExpanded(dataset_folder=dataset_folder,
+    train_dataset = LidarDataset(dataset_folder=dataset_folder,
                                  task='segmentation', number_of_points=n_points,
                                  files=train_files,
-                                 fixed_num_points=True)
-    val_dataset = LidarDatasetExpanded(dataset_folder=dataset_folder,
+                                 fixed_num_points=True,
+                                 c_sample=c_sample)
+    val_dataset = LidarDataset(dataset_folder=dataset_folder,
                                task='segmentation', number_of_points=n_points,
                                files=val_files,
-                               fixed_num_points=True)
+                               fixed_num_points=True,
+                               c_sample=c_sample)
 
-    # logging.info(f'Towers PC in train: {train_dataset.len_towers}')
-    # logging.info(f'Landscape PC in train: {train_dataset.len_landscape}')
-    # logging.info(
-    #     f'Proportion towers/landscape: {round((train_dataset.len_towers / (train_dataset.len_towers + train_dataset.len_landscape)) * 100, 3)}%')
-    # logging.info(f'Towers PC in val: {val_dataset.len_towers}')
-    # logging.info(f'Landscape PC in val: {val_dataset.len_landscape}')
-    # logging.info(
-    #     f'Proportion towers/landscape: {round((val_dataset.len_towers / (val_dataset.len_towers + val_dataset.len_landscape)) * 100, 3)}%')
+    logging.info(f'Towers PC in train: {train_dataset.len_towers}')
+    logging.info(f'Landscape PC in train: {train_dataset.len_landscape}')
+    logging.info(
+        f'Proportion towers/landscape: {round((train_dataset.len_towers / (train_dataset.len_towers + train_dataset.len_landscape)) * 100, 3)}%')
+    logging.info(f'Towers PC in val: {val_dataset.len_towers}')
+    logging.info(f'Landscape PC in val: {val_dataset.len_landscape}')
+    logging.info(
+        f'Proportion towers/landscape: {round((val_dataset.len_towers / (val_dataset.len_towers + val_dataset.len_landscape)) * 100, 3)}%')
     logging.info(f'Samples for training: {len(train_dataset)}')
     logging.info(f'Samples for validation: {len(val_dataset)}')
     logging.info(f'Task: {train_dataset.task}')
@@ -94,7 +96,7 @@ def train(
                                                  num_workers=number_of_workers,
                                                  drop_last=True)
 
-    pointnet = SegmentationPointNet(num_classes=NUM_CLASES, point_dimension=3)
+    pointnet = SegmentationPointNet(num_classes=5, point_dimension=2)
     pointnet.to(device)
 
     # print model and parameters
@@ -110,12 +112,8 @@ def train(
 
     # loss
     optimizer = optim.Adam(pointnet.parameters(), lr=learning_rate)
-    c_weights = torch.FloatTensor([1, 2, 2, 1, 1]).to(device)
+    c_weights = torch.FloatTensor([1, 2, 1, 1, 1]).to(device)
     ce_loss = torch.nn.CrossEntropyLoss(weight=c_weights, reduction='mean', ignore_index=-1)
-
-    scheduler_pointnet = torch.optim.lr_scheduler.MultiStepLR(optimizer,
-                                     milestones=[50, 100, 300],  # List of epoch indices
-                                     gamma=0.5)  # Multiplicative factor of learning rate decay
 
     if model_checkpoint:
         print('Loading checkpoint')
@@ -148,8 +146,6 @@ def train(
             'high_veg_val': [],
             'bckg_train': [],
             'bckg_val': [],
-            'other_towers_train': [],
-            'other_towers_val': [],
             'mean_iou_train': [],
             'mean_iou_val': [],
             'cables_train': [],
@@ -157,15 +153,13 @@ def train(
         }
         last_epoch = -1
 
-        # if epochs_since_improvement == 10 or epoch == 15:
-        #     adjust_learning_rate(optimizer, 0.5)
+        if epochs_since_improvement == 10 or epoch == 15:
+            adjust_learning_rate(optimizer, 0.5)
 
         # --------------------------------------------- train loop ---------------------------------------------
         for data in train_dataloader:
             metrics, targets, preds, last_epoch = train_loop(data, optimizer, ce_loss, pointnet, writer_train, True,
                                                              epoch, last_epoch)
-            preds=preds.view(-1)
-            targets=targets.view(-1)
             # compute metrics
             metrics = get_accuracy(preds, targets, metrics, 'segmentation')
 
@@ -187,7 +181,6 @@ def train(
             epoch_train_acc.append(metrics['accuracy'])
 
         # --------------------------------------------- val loop ---------------------------------------------
-        scheduler_pointnet.step()
 
         with torch.no_grad():
             first_batch = True
@@ -243,8 +236,6 @@ def train(
         writer_val.add_scalar('_iou_high_veg', np.mean(iou['high_veg_val']), epoch)
         writer_train.add_scalar('_iou_cables', np.mean(iou['cables_train']), epoch)
         writer_val.add_scalar('_iou_cables', np.mean(iou['cables_val']), epoch)
-        # writer_train.add_scalar('_iou_other_towers', np.mean(iou['other_towers_train']), epoch)
-        # writer_val.add_scalar('_iou_other_towers', np.mean(iou['other_towers_val']), epoch)
         # elif task == 'classification':
         #     writer_train.add_scalar('accuracy_weighted', np.mean(epoch_train_acc_w), epoch)
         #     writer_val.add_scalar('accuracy_weighted', np.mean(epoch_val_acc_w), epoch)
@@ -263,7 +254,7 @@ def train(
 
         else:
             epochs_since_improvement += 1
-        if epochs_since_improvement > 100:
+        if epochs_since_improvement > 40:
             exit()
 
     # plot_losses(train_loss, test_loss, save_to_file=os.path.join(output_folder, 'loss_plot.png'))
@@ -330,14 +321,13 @@ def train_loop(data, optimizer, ce_loss, pointnet, w_tensorboard=None, train=Tru
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset_folder', type=str, help='path to the dataset folder',
-                        default='/dades/LIDAR/towers_detection/datasets/towers_100x100_cls')
+    parser.add_argument('dataset_folder', type=str, help='path to the dataset folder')
     parser.add_argument('--path_list_files', type=str,
-                        default='train_test_files/RGBN_100x100')
+                        default='train_test_files/RGBN_x10_80x80')
     parser.add_argument('--output_folder', type=str, help='output folder', default='results')
     parser.add_argument('--number_of_points', type=int, default=4096, help='number of points per cloud')
-    parser.add_argument('--batch_size', type=int, default=32, help='batch size')
-    parser.add_argument('--epochs', type=int, default=400, help='number of epochs')
+    parser.add_argument('--batch_size', type=int, default=50, help='batch size')
+    parser.add_argument('--epochs', type=int, default=100, help='number of epochs')
     parser.add_argument('--learning_rate', type=float, default=0.001, help='learning rate')
     parser.add_argument('--number_of_workers', type=int, default=10, help='number of workers for the dataloader')
     parser.add_argument('--model_checkpoint', type=str, default='', help='model checkpoint path')

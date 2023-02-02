@@ -2,8 +2,7 @@ import argparse
 import time
 from pointNet.datasets import LidarDataset
 from pointNet.model.light_pointnet import ClassificationPointNet
-from pointNet.model.light_pointnet_IGBVI import ClassificationPointNet_IGBVI
-# from model.pointnet import *
+from pointNet.model.light_pointnet_256 import ClassificationPointNet
 import logging
 import json
 import os
@@ -13,6 +12,11 @@ from sklearn.metrics import precision_recall_curve
 from sklearn.metrics import f1_score
 from sklearn.metrics import auc
 from progressbar import progressbar
+import glob
+
+logging.basicConfig(format='%(asctime)s %(levelname)-8s %(message)s',
+                    level=logging.INFO,
+                    datefmt='%Y-%m-%d %H:%M:%S')
 
 if torch.cuda.is_available():
     logging.info(f"cuda available")
@@ -27,26 +31,23 @@ def test(dataset_folder,
          output_folder,
          number_of_workers,
          model_checkpoint,
-         path_list_files):
+         test_files):
 
     start_time = time.time()
     checkpoint = torch.load(model_checkpoint)
 
-    # Datasets train / val / test
-    with open(os.path.join(path_list_files, 'test_cls_files.txt'), 'r') as f:
-        test_files = f.read().splitlines()
-
     # Initialize dataset
     test_dataset = LidarDataset(dataset_folder=dataset_folder,
                                 task='classification',
-                                number_of_points=n_points,
+                                number_of_points=None,
                                 files=test_files,
-                                fixed_num_points=False)
+                                fixed_num_points=False,
+                                c_sample=False)
 
-    logging.info(f'Tower PC in test: {test_dataset.len_towers}')
-    logging.info(f'Landscape PC in test: {test_dataset.len_landscape}')
-    logging.info(
-        f'Proportion towers/landscape: {round((test_dataset.len_towers / (test_dataset.len_towers + test_dataset.len_landscape)) * 100, 3)}%')
+    # logging.info(f'Tower PC in test: {test_dataset.len_towers}')
+    # logging.info(f'Landscape PC in test: {test_dataset.len_landscape}')
+    # logging.info(
+    #     f'Proportion towers/landscape: {round((test_dataset.len_towers / (test_dataset.len_towers + test_dataset.len_landscape)) * 100, 3)}%')
     logging.info(f'Total samples: {len(test_dataset)}')
 
     # Datalaoders
@@ -55,15 +56,11 @@ def test(dataset_folder,
                                                   shuffle=False,
                                                   num_workers=number_of_workers,
                                                   drop_last=False)
-    if 'RGBN' in path_list_files:
-        model = ClassificationPointNet_IGBVI(num_classes=test_dataset.NUM_CLASSIFICATION_CLASSES,
-                                             point_dimension=test_dataset.POINT_DIMENSION,
-                                             dataset=test_dataset)
-    else:
-        model = ClassificationPointNet(num_classes=test_dataset.NUM_CLASSIFICATION_CLASSES,
-                                       point_dimension=test_dataset.POINT_DIMENSION,
-                                       dataset=test_dataset)
 
+    model = ClassificationPointNet(num_classes=test_dataset.NUM_CLASSIFICATION_CLASSES,
+                                   point_dimension=test_dataset.POINT_DIMENSION,
+                                   dataset=test_dataset,
+                                   device=device)
     model.to(device)
     logging.info('Loading checkpoint')
     model.load_state_dict(checkpoint['model'])
@@ -89,8 +86,8 @@ def test(dataset_folder,
     #     fid.write('point_cloud,prob[0],prob[1],pred,target\n')
     with open(os.path.join(output_folder, 'wrong_predictions-%s.csv' % name), 'w+') as fid:
         fid.write('file_name,prob[0],prob[1],pred,target\n')
-    with open(os.path.join(output_folder, 'results-positives-%s.csv' % name), 'w+') as fid:
-        fid.write('file_name\n')
+    # with open(os.path.join(output_folder, 'results-positives-%s.csv' % name), 'w+') as fid:
+    #     fid.write('file_name\n')
     # store file names for segmentation
     # with open(os.path.join(output_folder, 'files-segmentation-%s.csv' % name), 'w+') as fid:
     #     fid.write('file_name\n')
@@ -166,8 +163,8 @@ def test(dataset_folder,
 
     data = {"lr_recall": str(list(lr_recall)),
             "lr_precision": str(list(lr_precision))}
-    with open('pointNet/json_files/precision-recall-%s.json' % name, 'w') as f:
-        json.dump(data, f)
+    # with open('pointNet/json_files/precision-recall-%s.json' % name, 'w') as f:
+    #     json.dump(data, f)
 
     print("--- TOTAL TIME: %s min ---" % (round((time.time() - start_time) / 60, 3)))
 
@@ -175,21 +172,21 @@ def test(dataset_folder,
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('dataset_folder', type=str, help='path to the dataset folder')
-    parser.add_argument('output_folder', type=str, default='pointNet/results', help='output folder')
+    parser.add_argument('--output_folder', type=str, default='pointNet/results', help='output folder')
     parser.add_argument('--number_of_points', type=int, default=2048, help='number of points per cloud')
     parser.add_argument('--number_of_workers', type=int, default=0, help='number of workers for the dataloader')
     parser.add_argument('--model_checkpoint', type=str, default='', help='model checkpoint path')
-    parser.add_argument('--path_list_files', type=str,
-                        default='train_test_files/RGBN_x10_40x40')
+    parser.add_argument('--path_list_files', type=str,default='train_test_files/RGBN_x10_40x40')
     args = parser.parse_args()
 
-    logging.basicConfig(format='%(asctime)s %(levelname)-8s %(message)s',
-                        level=logging.DEBUG,
-                        datefmt='%Y-%m-%d %H:%M:%S')
+    # with open(os.path.join(args.path_list_files, 'test_cls_files.txt'), 'r') as f:
+    #     test_files = f.read().splitlines()
+
+    test_files = glob.glob(os.path.join(args.dataset_folder, '*pkl'))
 
     test(args.dataset_folder,
          args.number_of_points,
          args.output_folder,
          args.number_of_workers,
          args.model_checkpoint,
-         args.path_list_files)
+         test_files)

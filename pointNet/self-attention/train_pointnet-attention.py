@@ -4,17 +4,16 @@ import torch.nn.functional as F
 import time
 from torch.utils.data import random_split
 from torch.utils.tensorboard import SummaryWriter
-from pointNet.datasets import LidarKmeansDataset4Train
-from pointNet.model.pointnetRNN import BasePointNet, ClassificationWithAttention, SegmentationWithAttention
+from pointNet.datasets import LidarKmeansDataset
+from pointNet.model.pointnetAtt import BasePointNet, ClassificationWithAttention, SegmentationWithAttention
 import datetime
-import warnings
 from pointNet.collate_fns import *
 from prettytable import PrettyTable
 from utils.utils_plot import *
 from utils.get_metrics import *
 from utils.utils import *
+from torch.optim.lr_scheduler import MultiStepLR
 
-warnings.filterwarnings('ignore')
 
 if torch.cuda.is_available():
     print(f"cuda available")
@@ -23,25 +22,23 @@ else:
     print(f"cuda not available")
     device = 'cpu'
 
-ATT_HEADS = 2
+ATT_HEADS = 8
 GLOBAL_FEAT_SIZE = 256
 
 
-def train_gru(task: str,
+def train_att(task: str,
               dataset_folder: str,
               path_list_files: str,
               output_folder: str,
               n_points: int,
-              n_windows: int,
               batch_size: int,
               epochs: int,
               learning_rate: float,
               weighing_method: str = 'EFS',
               beta: float = 0.999,
               number_of_workers: int = 4,
-              model_checkpoint: str = None,
-              c_sample: bool = False,
-              use_kmeans: bool = True):
+              model_checkpoint: str = None):
+
     start_time = time.time()
     print(f"Weighing method: {weighing_method}")
 
@@ -55,7 +52,7 @@ def train_gru(task: str,
     if task == 'classification':
         name = 'files'
     elif task == 'segmentation':
-        name = 'seg_files_kmeans'
+        name = 'seg_files'
 
     with open(os.path.join(path_list_files, 'train_' + name + '.txt'), 'r') as f:
         train_files = f.read().splitlines()
@@ -63,7 +60,7 @@ def train_gru(task: str,
         val_files = f.read().splitlines()
     print(f'Dataset folder: {dataset_folder}')
 
-    NAME = 'ATTw5a' + str(ATT_HEADS) + 'g' + str(GLOBAL_FEAT_SIZE)
+    NAME = 'ATT'+ 'g' + str(GLOBAL_FEAT_SIZE) + 'w100'+'xyz'
 
     # Datasets train / val / test
     if task == 'classification':
@@ -81,29 +78,15 @@ def train_gru(task: str,
         collate_fn = collate_seq_padd
 
     # Initialize datasets
-    train_dataset = LidarKmeansDataset4Train(dataset_folder=dataset_folder,
-                                             task=task,
-                                             number_of_points=n_points,
-                                             number_of_windows=n_windows,
-                                             files=train_files,
-                                             fixed_num_points=c_sample,
-                                             c_sample=False)
-    val_dataset = LidarKmeansDataset4Train(dataset_folder=dataset_folder,
-                                           task=task,
-                                           number_of_points=n_points,
-                                           number_of_windows=n_windows,
-                                           files=val_files,
-                                           fixed_num_points=c_sample,
-                                           c_sample=False)
+    train_dataset = LidarKmeansDataset(dataset_folder=dataset_folder,
+                                       task=task,
+                                       number_of_points=n_points,
+                                       files=train_files)
+    val_dataset = LidarKmeansDataset(dataset_folder=dataset_folder,
+                                     task=task,
+                                     number_of_points=n_points,
+                                     files=val_files)
 
-    print(f'Towers PC in train: {train_dataset.len_towers}')
-    print(f'Landscape PC in train: {train_dataset.len_landscape}')
-    print(
-        f'Proportion towers/landscape: {round((train_dataset.len_towers / (train_dataset.len_towers + train_dataset.len_landscape)) * 100, 3)}%')
-    print(f'Towers PC in val: {val_dataset.len_towers}')
-    print(f'Landscape PC in val: {val_dataset.len_landscape}')
-    print(
-        f'Proportion towers/landscape: {round((val_dataset.len_towers / (val_dataset.len_towers + val_dataset.len_landscape)) * 100, 3)}%')
     print(f'Samples for training: {len(train_dataset)}')
     print(f'Samples for validation: {len(val_dataset)}')
     print(f'Task: {train_dataset.task}')
@@ -124,23 +107,24 @@ def train_gru(task: str,
 
     # ------------------------------------------- Models initialization -------------------------------------------
 
-    pointnet = BasePointNet(point_dimension=train_dataset.POINT_DIMENSION,
+    pointnet = BasePointNet(point_dimension=3,
                             return_local_features=True,
                             global_feat_dim=GLOBAL_FEAT_SIZE,
                             device=device)
 
     if task == 'classification':
-        att_net = ClassificationWithAttention(GLOBAL_FEAT_SIZE, ATT_HEADS, num_classes=6)
+        att_net = ClassificationWithAttention(GLOBAL_FEAT_SIZE, ATT_HEADS, num_classes=5)
     elif task == 'segmentation':
-        att_net = SegmentationWithAttention(GLOBAL_FEAT_SIZE, ATT_HEADS, num_classes=6)
+        att_net = SegmentationWithAttention(GLOBAL_FEAT_SIZE, ATT_HEADS, num_classes=5,local_dim=64 )
 
     # Models to device
     pointnet.to(device)
     att_net.to(device)
 
     best_vloss = 1_000_000.
+    epoch_ini = 0
     epochs_since_improvement = 0
-    c_weights = None
+    c_weights = torch.FloatTensor([1, 2, 2, 1, 1]).to(device)
 
     if task == 'classification':
         # todo add classes to samples_per_cls
@@ -151,10 +135,18 @@ def train_gru(task: str,
                                       beta=beta).to(device)
 
     # weighted loss
-    ce_loss = torch.nn.CrossEntropyLoss(reduction='mean', ignore_index=-1)
+    ce_loss = torch.nn.CrossEntropyLoss(weight=c_weights, reduction='mean', ignore_index=-1)
     # optimizers
     optimizer_pointnet = optim.Adam(pointnet.parameters(), lr=learning_rate)
     optimizer_att = optim.Adam(att_net.parameters(), lr=learning_rate)
+
+    # schedulers
+    scheduler_pointnet = MultiStepLR(optimizer_pointnet,
+                                     milestones=[150, 250, 350],  # List of epoch indices
+                                     gamma=0.5)  # Multiplicative factor of learning rate decay
+    scheduler_att = MultiStepLR(optimizer_att,
+                                milestones=[150, 250, 350],  # List of epoch indices
+                                gamma=0.5)  # Multiplicative factor of learning rate decay
 
     if model_checkpoint:
         print('Loading checkpoint')
@@ -164,10 +156,10 @@ def train_gru(task: str,
         att_net.load_state_dict(checkpoint['segmen_net'])
         batch_size = checkpoint['batch_size']
         learning_rate = checkpoint['lr']
-        epochs = checkpoint['epoch']
+        epoch_ini = checkpoint['epoch']
 
-        optimizer_pointnet.load_state_dict(checkpoint['optimizer_pointnet'])
-        optimizer_att.load_state_dict(checkpoint['optimizer_att'])
+        optimizer_pointnet.load_state_dict(checkpoint['opt_pointnet'])
+        optimizer_att.load_state_dict(checkpoint['opt_segmen'])
 
     # print model and parameters
     table = PrettyTable(["Modules", "Parameters"])
@@ -185,7 +177,7 @@ def train_gru(task: str,
     # print(table)
     print(f"Total Trainable Params: {total_params}")
 
-    for epoch in progressbar(range(epochs), redirect_stdout=True):
+    for epoch in progressbar(range(epoch_ini, epochs), redirect_stdout=True):
         epoch_train_loss = []
         ce_train_loss = []
         epoch_train_acc = []
@@ -215,18 +207,16 @@ def train_gru(task: str,
         }
         last_epoch = -1
 
-        if epochs_since_improvement == 10:
-            adjust_learning_rate(optimizer_pointnet, 0.5)
-            adjust_learning_rate(optimizer_att, 0.5)
-        # elif epoch == 15:
-        #     adjust_learning_rate(optimizer_pointnet, 0.5)
-        #     adjust_learning_rate(optimizer_att, 0.5)
+        # if epoch < 300:
+        #     if epochs_since_improvement == 50:
+        #         adjust_learning_rate(optimizer_pointnet, 0.5)
+        #         adjust_learning_rate(optimizer_att, 0.5)
 
         # --------------------------------------------- train loop ---------------------------------------------
         for data in train_dataloader:
             metrics, targets, preds, last_epoch = train_loop(data, optimizer_pointnet, optimizer_att, ce_loss,
                                                              pointnet, att_net, writer_train, task, True,
-                                                             c_weights, epoch, last_epoch)
+                                                             epoch, last_epoch)
             # discard padded windows to compute accuracy metrics
             preds, targets, _ = rm_padding(preds, targets)
             # compute accuracy
@@ -234,18 +224,16 @@ def train_gru(task: str,
 
             if task == 'segmentation':
                 # Segmentation labels:
-                # 0 -> background (other classes we're not interested)
+                # 0 -> others (other classes we're not interested)
                 # 1 -> tower
-                # 2 ->
+                # 2 -> power lines
                 # 3 -> low vegetation
-                # 4 -> medium vegetation
-                # 5 -> high vegetation
+                # 4 -> high vegetation
                 iou['bckg_train'].append(get_iou_obj(targets, preds, 0))
                 iou['tower_train'].append(get_iou_obj(targets, preds, 1))
                 iou['cables_train'].append(get_iou_obj(targets, preds, 2))
                 iou['low_veg_train'].append(get_iou_obj(targets, preds, 3))
-                iou['med_veg_train'].append(get_iou_obj(targets, preds, 4))
-                iou['high_veg_train'].append(get_iou_obj(targets, preds, 5))
+                iou['high_veg_train'].append(get_iou_obj(targets, preds, 4))
 
             # tensorboard
             ce_train_loss.append(metrics['ce_loss'].cpu().item())
@@ -259,7 +247,7 @@ def train_gru(task: str,
             for data in val_dataloader:
                 metrics, targets, preds, last_epoch = train_loop(data, optimizer_pointnet, optimizer_att, ce_loss,
                                                                  pointnet, att_net, writer_val, task, False,
-                                                                 c_weights, epoch, last_epoch, first_batch)
+                                                                 epoch, last_epoch, first_batch)
                 first_batch = False
                 # discard padded windows to compute accuracy metrics
                 preds, targets, _ = rm_padding(preds, targets)
@@ -271,8 +259,7 @@ def train_gru(task: str,
                     iou['tower_val'].append(get_iou_obj(targets, preds, 1))
                     iou['cables_val'].append(get_iou_obj(targets, preds, 2))
                     iou['low_veg_val'].append(get_iou_obj(targets, preds, 3))
-                    iou['med_veg_val'].append(get_iou_obj(targets, preds, 4))
-                    iou['high_veg_val'].append(get_iou_obj(targets, preds, 5))
+                    iou['high_veg_val'].append(get_iou_obj(targets, preds, 4))
 
                 # tensorboard
                 epoch_val_loss.append(metrics['loss'].cpu().item())  # in val ce_loss and total_loss are the same
@@ -286,6 +273,8 @@ def train_gru(task: str,
                 detected_negative.append((np.array(preds) == np.zeros(n_samples)).sum() / n_samples)
                 detected_positive.append((np.array(preds) == np.ones(n_samples)).sum() / n_samples)
 
+        scheduler_pointnet.step()
+        scheduler_att.step()
         # ------------------------------------------------------------------------------------------------------
         # Tensorboard
         writer_train.add_scalar('loss', np.mean(epoch_train_loss), epoch)
@@ -325,9 +314,10 @@ def train_gru(task: str,
         if np.mean(epoch_val_loss) < best_vloss:
             # Save checkpoint
             if task == 'classification':
-                name = now.strftime("%m-%d-%H:%M") + '_clsGRU' + NAME
+                name = now.strftime("%m-%d-%H:%M") + '_cls' + NAME
             elif task == 'segmentation':
-                name = now.strftime("%m-%d-%H:%M") + '_segGRU' + NAME
+                name = now.strftime("%m-%d-%H:%M") + '_seg' + NAME
+
             save_checkpoint_segmen_model(name, task, epoch, epochs_since_improvement, pointnet, att_net,
                                          optimizer_pointnet,
                                          optimizer_att,
@@ -338,8 +328,6 @@ def train_gru(task: str,
 
         else:
             epochs_since_improvement += 1
-        if epochs_since_improvement > 30:
-            exit()
 
     # plot_losses(train_loss, test_loss, save_to_file=os.path.join(output_folder, 'loss_plot.png'))
     # plot_accuracies(train_acc, test_acc, save_to_file=os.path.join(output_folder, 'accuracy_plot.png'))
@@ -347,8 +335,7 @@ def train_gru(task: str,
 
 
 def train_loop(data, optimizer_pointnet, optimizer_att, ce_loss, pointnet, att_net,
-               w_tensorboard=None, task='classification', train=True,
-               c_weights=torch.Tensor(), epoch=0, last_epoch=0, first_batch_val=False):
+               w_tensorboard=None, task='classification', train=True, epoch=0, last_epoch=0, first_batch_val=False):
     """
     :param data: tuple with (points, targets, filenames, lengths, len_w)
     :param optimizer_rnn:
@@ -369,10 +356,17 @@ def train_loop(data, optimizer_pointnet, optimizer_att, ce_loss, pointnet, att_n
     """
 
     metrics = {}
-    # iou_tower used only in segmentation
-    pc_w, targets, filenames = data
+    pc_clusters, targets, filenames, centroids = data
+    centroids = centroids.to(device)
+
     # classifications shapes: [b, n_samples, dims, w_len], [b, w_len], [b]
     # segmentation shapes : [b, n_samples, dims, w_len], [b, n_samples], [b]
+    # targets classif: [b, w_len]
+    # targets segmen: [b, n_points, w_len]
+    # centroids: [b, n_clusters, 2]
+
+    batch_size = pc_clusters.shape[0]
+    n_clusters = pc_clusters.shape[3]
 
     # Pytorch accumulates gradients. We need to clear them out before each instance
     optimizer_pointnet.zero_grad()
@@ -385,20 +379,34 @@ def train_loop(data, optimizer_pointnet, optimizer_att, ce_loss, pointnet, att_n
         pointnet = pointnet.eval()
         att_net = att_net.eval()
 
-    pc_w, targets = pc_w.to(device), targets.to(device)  # [b, 2048, dims, w_len]
-    # targets classif: [b, w_len]
-    # targets segmen: [b, n_points, w_len]
-
-    # Variables to store output of GRU
+    # Variables to store sequence
     np_cluster = []
     lo_feats = torch.FloatTensor().to(device)
     gl_feats = torch.FloatTensor().to(device)
     targets_pc = torch.LongTensor().to(device)
     pc = torch.LongTensor()
 
+    # shuffle clusters
+    pc_clusters, targets = shuffle_clusters(pc_clusters, targets)
+
+    # set rotation angle
+    r_angle = np.random.uniform() * 2 * np.pi
+
     # BasePointNet through all clusters
-    for w in range(pc_w.shape[3]):
-        in_points = pc_w[:, :, :, w]  # get window
+    for w in range(n_clusters):
+        # get window
+        in_points = pc_clusters[:, :, :, w].numpy()
+        targets_w = targets[:, :, w]
+        # data augmentation
+        if train:
+            # rotate point cloud
+            in_points[:, :, :3] = rotate_point_cloud_z(in_points[:, :, :3], rotation_angle=r_angle)
+            # shuffle data and labels todo check
+            in_points, targets_w, ix = shuffle_data(in_points, targets_w)
+
+        targets_w = torch.LongTensor(targets_w).to(device)
+        in_points = torch.Tensor(in_points).to(device)
+        # get embeds from PointNet
         local_global_features, feat_transform = pointnet(in_points)
         local_feat = local_global_features[:, :, -64:]  # [batch, n_point, 64]
         global_feat = local_global_features[:, 0, :-64]  # [batch, 256]
@@ -411,21 +419,20 @@ def train_loop(data, optimizer_pointnet, optimizer_att, ce_loss, pointnet, att_n
         if task == 'segmentation':
             # we get labels of points instead of "targets" because there is an error if we concatenate w of targets
             # labels = (in_points[:, :, 3] == 15).type(torch.LongTensor).to(device)
-            targets_pc = torch.cat((targets_pc, targets[:, :, w]), dim=1)
+            targets_pc = torch.cat((targets_pc, targets_w), dim=1)
+
             pc = torch.cat((pc, in_points.cpu()), dim=1)
 
-    # mask for attention: True value indicates that the corresponding position is not allowed
-    # (N⋅num_heads,L,S)
-    # mask = torch.where(targets != -1, torch.zeros_like(targets, dtype=torch.bool),
-    #                    torch.ones_like(targets, dtype=torch.bool))
-    # mask size [b, w_len]
-    # mask = mask.repeat(ATT_HEADS, 1).unsqueeze(dim=2)  # [b*n_heads, 5, 1]
-    # mask = mask.repeat(1, 1, n_windows).to(device)  # [b*n_heads, 5, 5] (N⋅num_heads,L,S)
-    # mask = mask.expand(-1, targets.shape[1], targets.shape[1]).to(device)  # [8, w_len, w_len]  (N⋅num_heads,L,S)
-    # todo check mask
+    # key_padding_mask (Optional[Tensor]) – If specified, a mask of shape (N, S)(N,S) indicating which elements
+    # within key to ignore for the purpose of attention (i.e. treat as “padding”)
+    targets_mask = targets_pc.view(batch_size, -1, n_clusters)
+    mask = torch.where(targets_mask != -1, torch.zeros_like(targets_mask, dtype=torch.bool),
+                       torch.ones_like(targets_mask, dtype=torch.bool))
+    mask = torch.all(mask, 1)  # [b,n_clusters]
+    gl_feats = torch.transpose(gl_feats, 0, 1)
 
     if task == 'segmentation':
-        logits, att_weights = att_net(gl_feats, lo_feats, np_cluster)  # [b, 2, 10240]
+        logits, att_weights = att_net(gl_feats, lo_feats, centroids, np_cluster, mask)  # [b, 2, 10240]
         # gl_feats [b, 5, 256]
         # lo_feats [b, 10240, 64]
         # np_cluster [2048, 2048, 2048, 2048, 2048]
@@ -470,41 +477,37 @@ def train_loop(data, optimizer_pointnet, optimizer_att, ce_loss, pointnet, att_n
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('task', type=str, choices=['classification', 'segmentation'], help='type of task')
-    parser.add_argument('dataset_folder', type=str, help='path to the dataset folder')
+    parser.add_argument('--task', type=str, choices=['classification', 'segmentation'], help='type of task',
+                        default='segmentation')
+    parser.add_argument('--dataset_path', type=str, help='path to the dataset folder',
+                        default='/dades/LIDAR/towers_detection/datasets/kmeans_200x200c9_2048')
     parser.add_argument('--path_list_files', type=str,
-                        default='train_test_files/RGBN_x10_80x80_kmeans',
+                        default='train_test_files/RGBN_200x200',
                         help='output folder')
-    parser.add_argument('--output_folder', type=str, default='pointNet/results', help='output folder')
+    parser.add_argument('--out_path', type=str, default='pointNet/results', help='output folder')
     parser.add_argument('--number_of_points', type=int, default=2048, help='number of points per cloud')
-    parser.add_argument('--number_of_windows', type=int, default=5, help='number of maximum windows per cloud')
+    parser.add_argument('--number_of_windows', type=int, default=9, help='number of maximum windows per cloud')
     parser.add_argument('--batch_size', type=int, default=32, help='batch size')
-    parser.add_argument('--epochs', type=int, default=200, help='number of epochs')
+    parser.add_argument('--epochs', type=int, default=500, help='number of epochs')
     parser.add_argument('--learning_rate', type=float, default=0.001, help='learning rate')
     parser.add_argument('--weighing_method', type=str, default='EFS',
                         help='sample weighing method: ISNS or INS or EFS')
     parser.add_argument('--beta', type=float, default=0.999, help='model checkpoint path')
-    parser.add_argument('--number_of_workers', type=int, default=1, help='number of workers for the dataloader')
+    parser.add_argument('--number_of_workers', type=int, default=8, help='number of workers for the dataloader')
     parser.add_argument('--model_checkpoint', type=str, default='', help='model checkpoint path')
     parser.add_argument('--c_sample', type=bool, default=False, help='use constrained sampling')
 
     args = parser.parse_args()
 
-    # logging.basicConfig(format='%(asctime)s %(levelname)-8s %(message)s',
-    #                     level=logging.INFO,
-    #                     datefmt='%Y-%m-%d %H:%M:%S')
-
-    train_gru(args.task,
-              args.dataset_folder,
+    train_att(args.task,
+              args.dataset_path,
               args.path_list_files,
-              args.output_folder,
+              args.out_path,
               args.number_of_points,
-              args.number_of_windows,
               args.batch_size,
               args.epochs,
               args.learning_rate,
               args.weighing_method,
               args.beta,
               args.number_of_workers,
-              args.model_checkpoint,
-              args.c_sample)
+              args.model_checkpoint)

@@ -2,7 +2,7 @@ import argparse
 import hashlib
 import logging
 import random
-from utils import *
+from utils.utils import *
 import pickle
 import laspy
 import time
@@ -43,13 +43,10 @@ def remove_ground_and_outliers(files_path, out_path, max_z=100.0, max_intensity=
     }
 
     logging.info(f'Input path: {files_path}')
-    out_path = os.path.join(out_path, 'normalized_' + str(n_points))
+    # out_path = os.path.join(out_path, 'normalized_' + str(n_points))
     logging.info(f'output path: {out_path}')
     if not os.path.exists(out_path):
         os.makedirs(out_path)
-
-    # logging.info(f"Remove points of ground (up to {args.n_points})")
-    # logging.info(f"Add constrained sampling flag")
 
     files = glob.glob(os.path.join(files_path, '*.las'))
     for file in progressbar(files):
@@ -102,9 +99,9 @@ def remove_ground_and_outliers(files_path, out_path, max_z=100.0, max_intensity=
 
                 # ----------------------------------------- NORMALIZATION -----------------------------------------
                 pc = pc.transpose()
-                # normalize axes
                 if pc[:, 0].max() - pc[:, 0].min() == 0:
                     continue
+                # normalize axes
                 pc[:, 0] = (pc[:, 0] - pc[:, 0].min()) / (pc[:, 0].max() - pc[:, 0].min())
                 pc[:, 1] = (pc[:, 1] - pc[:, 1].min()) / (pc[:, 1].max() - pc[:, 1].min())
                 pc[:, 2] = pc[:, 2] / max_z
@@ -148,7 +145,7 @@ def remove_ground_and_outliers(files_path, out_path, max_z=100.0, max_intensity=
                     counters['total_count'] += 1
 
                     # Add constrained sampling flag
-                    pc, counters = constrained_sampling(pc, n_points, TH_1/max_z, TH_2/max_z, counters)
+                    # pc, counters = constrained_sampling(pc, n_points, TH_1/max_z, TH_2/max_z, counters)
                     # store file
                     with open(os.path.join(out_path, fileName) + '.pkl', 'wb') as f:
                         pickle.dump(pc, f)

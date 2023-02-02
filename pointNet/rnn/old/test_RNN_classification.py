@@ -2,8 +2,8 @@ import argparse
 import time
 from torch.utils.data import random_split
 import torch.nn.functional as F
-from pointNet.datasets import LidarKmeansDataset4Train
-from pointNet.model.pointnetRNN import GRUPointNet
+from pointNet.datasets import LidarKmeansDataset
+from pointNet.model.pointnetAtt import GRUPointNet
 import logging
 import warnings
 from pointNet.collate_fns import *
@@ -45,10 +45,10 @@ def test(dataset_folder,
     # logging.info(f"Tensorboard runs: {writer_test.get_logdir()}")
 
     # Initialize dataset
-    test_dataset = LidarKmeansDataset4Train(dataset_folder=dataset_folder,
-                                            task='classification', number_of_points=n_points,
-                                            files=test_files,
-                                            fixed_num_points=False)
+    test_dataset = LidarKmeansDataset(dataset_folder=dataset_folder,
+                                      task='classification', number_of_points=n_points,
+                                      files=test_files,
+                                      fixed_num_points=False)
 
     logging.info(f'Tower PC in test: {test_dataset.len_towers}')
     logging.info(f'Landscape PC in test: {test_dataset.len_landscape}')

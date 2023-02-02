@@ -1,7 +1,7 @@
 import argparse
 
 import laspy
-from utils import *
+from utils.utils import *
 import logging
 import time
 from progressbar import progressbar
@@ -24,8 +24,8 @@ def split_dataset_windows(DATASET_NAME, LAS_PATH, SEL_CLASS, min_p=10, w_size=[4
 
     # # ------------------------------------------------- 1 --------------------------------------------------------
     # Get LAS blocks containing towers and store x,y,z in dict
-    logging.info('----------------- 1 -----------------')
-    logging.info(f"Get point clouds of class {SEL_CLASS}")
+    # logging.info('----------------- 1 -----------------')
+    # logging.info(f"Get point clouds of class {SEL_CLASS}")
     # Get x,y,z of  points labeled as our target object (selClass)
     # block_points_towers = get_pointCloud_selClass(LAS_PATH, selClass=SEL_CLASS)
 
@@ -40,7 +40,7 @@ def split_dataset_windows(DATASET_NAME, LAS_PATH, SEL_CLASS, min_p=10, w_size=[4
 
     # ----------------------------------------------- 2 ----------------------------------------------------------
     # Sliding Window for tower segmentation
-    logging.info('----------------- 2 -----------------')
+    # logging.info('----------------- 2 -----------------')
     # dic_pc_towers, dic_center_towers = object_segmentation(block_points_towers,
     #                                                        min_points=min_p,
     #                                                        windowSize=[40, 40],
@@ -62,14 +62,14 @@ def split_dataset_windows(DATASET_NAME, LAS_PATH, SEL_CLASS, min_p=10, w_size=[4
 
     # ------------------------------------------------ 3 ---------------------------------------------------------
     # Loop over LAS files point clouds to get towers with context and store as LAS file
-    logging.info('----------------- 3 -----------------')
-    get_context(dic_center_towers, w_size=W_SIZE, path=LAS_PATH, dataset=DATASET_NAME, min_p=min_p, data_augm=data_augm,
-                name='tower')
+    # logging.info('----------------- 3 -----------------')
+    # get_context(dic_center_towers, w_size=W_SIZE, path=LAS_PATH, dataset=DATASET_NAME, min_p=min_p, data_augm=data_augm,
+    #             name='tower')
 
     # -------------------------------------------------- 4 -------------------------------------------------------
     # Store all points != selClass as LAS
-    # logging.info('----------------- 4 -----------------')
-    # get_points_without_object(SEL_CLASS, w_size=W_SIZE, path=LAS_PATH, center_t=dic_center_towers, dataset=DATASET_NAME)
+    logging.info('----------------- 4 -----------------')
+    get_points_without_object(SEL_CLASS, w_size=W_SIZE, path=LAS_PATH, center_t=dic_center_towers, dataset=DATASET_NAME)
 
     print("--- TOTAL TIME: %s h ---" % (round((time.time() - start_time) / 3600, 3)))
     # ------------------------------------------------------------------------------------------------------------
@@ -407,9 +407,9 @@ if __name__ == '__main__':
                         help='output folder where processed files are stored')
     parser.add_argument('--min_p', type=int, default=10, help='minimum number of points in object')
     parser.add_argument('--sel_class', type=int, default=15, help='selected class')
-    parser.add_argument('--datasets', type=list, default=['CAT3', 'BDN'], help='list of datasets names')
+    parser.add_argument('--datasets', type=list, default=['CAT3', 'RIBERA'], help='list of datasets names')
     parser.add_argument('--LAS_files_path', type=str)
-    parser.add_argument('--w_size', default=[80, 80])
+    parser.add_argument('--w_size', default=[40, 40])
     parser.add_argument('--data_augm', default=10)
 
     args = parser.parse_args()

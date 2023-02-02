@@ -3,12 +3,11 @@ import torch
 import numpy as np
 
 
-def get_iou_obj(preds: torch.LongTensor, targets: torch.LongTensor, label: int = 1):
-    pc_preds = preds.view(-1)
-    targets = targets.view(-1)
+def get_iou_obj(pc_preds: torch.LongTensor, targets: torch.LongTensor, label: int = 1):
+    targets = torch.LongTensor(targets)
     # get metrics
     corrects = torch.eq(torch.LongTensor(pc_preds), targets)
-    gt_positive = (np.array(targets) == np.ones(len(targets)) * label).sum()  # TP + FN
+    gt_positive = np.count_nonzero(np.array(targets) == np.ones(len(targets)) * label)#.sum()  # TP + FN
     detected_positive = (np.array(pc_preds) == np.ones(len(targets)) * label)
     tp = np.logical_and(corrects, detected_positive).sum()
     fp = np.array(detected_positive).sum() - tp
@@ -19,7 +18,8 @@ def get_iou_obj(preds: torch.LongTensor, targets: torch.LongTensor, label: int =
 
 
 def get_accuracy(preds, targets, metrics, task, c_weights=None):
-    corrects = torch.eq(preds.view(-1), targets.view(-1))
+    # corrects = torch.eq(preds.view(-1), targets.view(-1))
+    corrects = np.equal(preds, targets)
     metrics['accuracy'] = (corrects.sum() / len(corrects)).item()
     metrics['accuracy_w'] = None
 

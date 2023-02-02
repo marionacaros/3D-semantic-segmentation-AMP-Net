@@ -1,13 +1,14 @@
 #!/bin/bash
-
-#for p in /dades/LIDAR/towers_detection/LAS_data_windows/CAT3/w_towers_80x80_10p/tower_v*.las; do
-#  pdal translate $p $p hag_nn --writers.las.extra_dims="HeightAboveGround=float32"
-#  echo "$p"
-#done
-for p in /dades/LIDAR/towers_detection/LAS_data_windows/RIBERA/w_towers_80x80_10p/tower_v*.las; do
+for p in /dades/LIDAR/towers_detection/LAS_data_windows_200x200/RIBERA/*.las; do
   pdal translate $p $p hag_nn --writers.las.extra_dims="HeightAboveGround=float32"
   echo "$p"
 done
+
+for p in /dades/LIDAR/towers_detection/LAS_data_windows_200x200/CAT3/*.las; do
+  pdal translate $p $p hag_nn --writers.las.extra_dims="HeightAboveGround=float32"
+  echo "$p"
+done
+
 #for p in /dades/LIDAR/towers_detection/LAS_data_windows/BDN/w_towers_80x80_10p/tower_v*.las; do
 #  pdal translate $p $p hag_nn --writers.las.extra_dims="HeightAboveGround=float32"
 #  echo "$p"
