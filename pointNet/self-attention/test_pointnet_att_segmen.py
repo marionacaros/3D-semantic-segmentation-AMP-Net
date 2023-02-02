@@ -293,7 +293,7 @@ if __name__ == '__main__':
     parser.add_argument('--number_of_workers', type=int, default=0, help='number of workers for the dataloader')
     parser.add_argument('--model_checkpoint', type=str, default='', help='model checkpoint path')
     parser.add_argument('--path_list_files', type=str, help='output folder',
-                        default='train_test_files/RGBN_100x100_old')
+                        default='train_test_files/RGBN_100x100')
 
     args = parser.parse_args()
 

@@ -39,11 +39,11 @@ This function first removes ground and points above 100 meters and then normaliz
 
 To train models use:<br />
 ```
-python pointNet/train_segmentation.py $data_path --path_list_files $list_files_split_path  --batch_size 32 --epochs 50 --learning_rate 0.001 --weighing_method EFS --number_of_points 2048 --number_of_workers 4 --c_sample True
+python pointNet/self-attention/train_pointnet-attention.py $data_path --path_list_files $list_files_split_path  --batch_size 32 --epochs 50 --learning_rate 0.001 --number_of_points 2048 --number_of_workers 4 
 ```
 For model inference use:<br />
 ```
-python pointNet/test_segmentation.py /dades/LIDAR/towers_detection/datasets pointNet/results/ --number_of_points 2048 --number_of_workers 0 --model_checkpoint
+python pointNet/self-attention/test_pointnet_att_segmen.py $data_path --path_list_files $list_files --number_of_points 2048 --number_of_workers 0 --model_checkpoint
 ```
 ## Results
 ![plot](./doc/results.png)

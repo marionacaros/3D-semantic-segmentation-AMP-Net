@@ -477,12 +477,12 @@ def train_loop(data, optimizer_pointnet, optimizer_att, ce_loss, pointnet, att_n
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+
+    parser.add_argument('dataset_path', type=str, help='path to the dataset folder')
     parser.add_argument('--task', type=str, choices=['classification', 'segmentation'], help='type of task',
                         default='segmentation')
-    parser.add_argument('--dataset_path', type=str, help='path to the dataset folder',
-                        default='/dades/LIDAR/towers_detection/datasets/kmeans_200x200c9_2048')
     parser.add_argument('--path_list_files', type=str,
-                        default='train_test_files/RGBN_200x200',
+                        default='train_test_files/RGBN_100x100',
                         help='output folder')
     parser.add_argument('--out_path', type=str, default='pointNet/results', help='output folder')
     parser.add_argument('--number_of_points', type=int, default=2048, help='number of points per cloud')
@@ -495,7 +495,6 @@ if __name__ == '__main__':
     parser.add_argument('--beta', type=float, default=0.999, help='model checkpoint path')
     parser.add_argument('--number_of_workers', type=int, default=8, help='number of workers for the dataloader')
     parser.add_argument('--model_checkpoint', type=str, default='', help='model checkpoint path')
-    parser.add_argument('--c_sample', type=bool, default=False, help='use constrained sampling')
 
     args = parser.parse_args()
 
