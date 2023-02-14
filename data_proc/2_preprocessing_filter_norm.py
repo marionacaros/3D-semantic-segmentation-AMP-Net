@@ -80,35 +80,28 @@ def remove_ground_and_outliers(files_path, out_path, max_z=100.0, max_intensity=
                     ndvi_arr = np.zeros(len(data_f.x))
 
                 pc = np.vstack((data_f.x, data_f.y, data_f.HeightAboveGround,
-                                data_f.classification,                              # 3
-                                data_f.intensity / max_intensity,                   # 4
-                                data_f.red / 65536.0,                               # 5
-                                data_f.green / 65536.0,                             # 6
-                                data_f.blue / 65536.0,                              # 7
-                                nir_arr / 65535.0,                                  # 8
-                                ndvi_arr,                                           # 9
-                                np.zeros(len(data_f.x)),                            # 10
-                                data_f.z,                                           # 11
-                                data_f.x,                                           # 12
-                                data_f.y,                                           # 13
-                                data_f.z))                                          # 14
+                                data_f.classification,  # 3
+                                data_f.intensity / max_intensity,  # 4
+                                data_f.red / 65536.0,  # 5
+                                data_f.green / 65536.0,  # 6
+                                data_f.blue / 65536.0,  # 7
+                                nir_arr / 65535.0,  # 8
+                                ndvi_arr,  # 9
+                                data_f.x,  # 10
+                                data_f.y,  # 11
+                                data_f.z))  # 12
 
                 # ----------------------------------------- NORMALIZATION -----------------------------------------
                 pc = pc.transpose()
                 if pc[:, 0].max() - pc[:, 0].min() == 0:
                     continue
                 # normalize axes between -1 and 1
-                pc[:, 0] = 2*((pc[:, 0] - pc[:, 0].min()) / (pc[:, 0].max() - pc[:, 0].min()))-1
-                pc[:, 1] = 2*((pc[:, 1] - pc[:, 1].min()) / (pc[:, 1].max() - pc[:, 1].min()))-1
+                pc[:, 0] = 2 * ((pc[:, 0] - pc[:, 0].min()) / (pc[:, 0].max() - pc[:, 0].min())) - 1
+                pc[:, 1] = 2 * ((pc[:, 1] - pc[:, 1].min()) / (pc[:, 1].max() - pc[:, 1].min())) - 1
                 pc[:, 2] = pc[:, 2] / max_z  # (HAG)
-                # labels
-                pc[:, 3] = pc[:, 3].astype(int)
-                # z HAS
-                pc[:, 11] = (pc[:, 11] - pc[:, 11].min()) / (pc[:, 11].max() - pc[:, 11].min())
 
                 # Remove points z < 0
                 pc = pc[pc[:, 2] >= 0]
-
                 # make sure intensity and NIR is in range (0,1)
                 pc[:, 4] = np.clip(pc[:, 4], 0.0, 1.0)
                 pc[:, 8] = np.clip(pc[:, 8], 0.0, 1.0)
@@ -120,10 +113,18 @@ def remove_ground_and_outliers(files_path, out_path, max_z=100.0, max_intensity=
                 if pc.shape[0] >= n_points:
                     counters['total_count'] += 1
 
-                    # Add constrained sampling flag
-                    # pc, counters = constrained_sampling(pc, n_points, TH_1/max_z, TH_2/max_z, counters)
+                    # rename
+                    set_labels = set(pc[:, 3].astype(int))
+                    if 14 in set_labels or 15 in set_labels:
+                        name = 'powerline_'
+                    else:
+                        name = 'pc_'
+
+                    fileName = fileName.split('_')
+                    fileName = fileName[1] + '_' + fileName[2] + '_' + fileName[3]
+
                     # store file
-                    with open(os.path.join(out_path, fileName) + '.pkl', 'wb') as f:
+                    with open(os.path.join(out_path, name + fileName) + '.pkl', 'wb') as f:
                         pickle.dump(pc, f)
 
                 else:
@@ -157,7 +158,7 @@ if __name__ == '__main__':
     start_time = time.time()
 
     for dataset_name in args.datasets:
-        paths = [args.in_path + dataset_name ]
+        paths = [args.in_path + dataset_name]
 
         for input_path in paths:
             logging.info(f'Dataset: {dataset_name}')
